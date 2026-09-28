@@ -6,6 +6,8 @@
 //
 //	spotify-tui            run the interface
 //	spotify-tui setup      store the client ID from the Spotify dashboard
+//	spotify-tui login      authorize in the browser without starting the UI
+//	spotify-tui status     print devices and what is playing, for debugging
 //	spotify-tui logout     forget the cached token
 package main
 
@@ -37,6 +39,10 @@ func run() error {
 		switch os.Args[1] {
 		case "setup":
 			return setup()
+		case "login":
+			return login()
+		case "status":
+			return status()
 		case "logout":
 			if err := auth.Logout(); err != nil {
 				return err
@@ -68,11 +74,84 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	client := spotify.New(httpClient, spotify.WithRetry(true))
-
-	p := tea.NewProgram(ui.New(client), tea.WithAltScreen())
+	p := tea.NewProgram(ui.New(httpClient), tea.WithAltScreen())
 	_, err = p.Run()
 	return err
+}
+
+// login runs the browser flow and prints who is logged in, so auth can be
+// checked without a TTY.
+func login() error {
+	cfg, err := auth.LoadConfig()
+	if err != nil {
+		return err
+	}
+	if cfg.ClientID == "" {
+		return fmt.Errorf("no client ID configured, run: spotify-tui setup")
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	httpClient, err := auth.Login(ctx, cfg, os.Stderr)
+	if err != nil {
+		return err
+	}
+	u, err := spotify.New(httpClient).CurrentUser(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Logged in as %s (%s, %s)\n", u.DisplayName, u.ID, u.Product)
+	return nil
+}
+
+// status is a non-interactive check that the token and API work.
+func status() error {
+	cfg, err := auth.LoadConfig()
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	httpClient, err := auth.Login(ctx, cfg, os.Stderr)
+	if err != nil {
+		return err
+	}
+	c := spotify.New(httpClient)
+	u, err := c.CurrentUser(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("user:      %s (%s)\n", u.DisplayName, u.Product)
+	pl, err := c.CurrentUsersPlaylists(ctx, spotify.Limit(1))
+	if err != nil {
+		return err
+	}
+	fmt.Printf("playlists: %d\n", pl.Total)
+	devs, err := c.PlayerDevices(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("devices:   %d\n", len(devs))
+	for _, d := range devs {
+		mark := " "
+		if d.Active {
+			mark = "*"
+		}
+		fmt.Printf("  %s %s (%s, vol %d%%)\n", mark, d.Name, d.Type, d.Volume)
+	}
+	st, err := c.PlayerState(ctx)
+	if err != nil {
+		return err
+	}
+	if st == nil || st.Item == nil {
+		fmt.Println("playing:   nothing")
+		return nil
+	}
+	verb := "paused"
+	if st.Playing {
+		verb = "playing"
+	}
+	fmt.Printf("%s:   %s - %s\n", verb, st.Item.Name, st.Item.Artists[0].Name)
+	return nil
 }
 
 func setup() error {
@@ -105,6 +184,8 @@ const usage = `spotify-tui: a terminal remote for Spotify
 
   spotify-tui          run the interface
   spotify-tui setup    store the client ID from developer.spotify.com
+  spotify-tui login    authorize in the browser without starting the UI
+  spotify-tui status   print devices and what is playing, for debugging
   spotify-tui logout   forget the cached login
 
 Environment:

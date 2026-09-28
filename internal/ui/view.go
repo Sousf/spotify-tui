@@ -142,6 +142,9 @@ func (m Model) renderContent(w, h int) string {
 			msg = "loading…"
 		} else if p.loadErr != nil {
 			msg = p.loadErr.Error()
+			if p.context != "" {
+				msg += ". Press enter to play it anyway"
+			}
 		} else if p.kind == pageDevices {
 			msg = "no devices found. Open Spotify on a phone or computer and press R"
 		} else if p.kind == pageQueue {
@@ -345,9 +348,8 @@ func (m Model) renderHelp(w, h int) string {
 		{"Selected track", []row{
 			{"a", "add to queue"},
 			{"f / F", "save / unsave (Liked Songs)"},
-			{"e", "artist's top tracks"},
-			{"A", "artist's albums"},
-			{"b", "album"},
+			{"e", "go to artist"},
+			{"b", "go to album"},
 		}},
 	}
 	inner := w - 2

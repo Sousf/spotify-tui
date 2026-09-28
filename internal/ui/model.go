@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"net/http"
 	"strings"
 	"time"
 
@@ -28,7 +29,7 @@ const (
 
 // Model is the root bubbletea model.
 type Model struct {
-	client *spotify.Client
+	client *api
 
 	width, height int
 	focus         focus
@@ -50,8 +51,9 @@ type Model struct {
 	statusUntil time.Time
 }
 
-// New builds the model. The client must already be authenticated.
-func New(client *spotify.Client) Model {
+// New builds the model from an authenticated HTTP client.
+func New(hc *http.Client) Model {
+	client := newAPI(hc)
 	ti := textinput.New()
 	ti.Prompt = "/ "
 	ti.Placeholder = "search tracks, artists, albums, playlists"
@@ -216,10 +218,7 @@ func (m *Model) activate(it *item) tea.Cmd {
 		p.load = albumLoader(c, album, p)
 		return m.push(p)
 	case kindArtist:
-		p := &page{kind: pageTracks, title: it.title + "  " + dimStyle.Render("top tracks"), loading: true}
-		m.stack = append(m.stack, p)
-		m.focus = focusContent
-		return fetchArtistTop(c, it.id, m.country, p)
+		return m.openArtist(it)
 	case kindPlaylist:
 		p := &page{kind: pageTracks, title: it.title + "  " + dimStyle.Render(it.sub), context: it.uri}
 		p.load = playlistLoader(c, it.id, p)
@@ -254,21 +253,9 @@ func (m *Model) playFrom(p *page) tea.Cmd {
 	return playURIs(m.client, uris, 0)
 }
 
-// openArtistAlbums pushes the discography of the selected row's artist.
-func (m *Model) openArtistAlbums(it *item) tea.Cmd {
-	if it == nil || it.artistID == "" {
-		return nil
-	}
-	name := it.title
-	if it.kind != kindArtist {
-		name = strings.SplitN(it.sub, ",", 2)[0]
-	}
-	p := &page{kind: pageAlbums, title: name + "  " + dimStyle.Render("albums")}
-	p.load = artistAlbumsLoader(m.client, it.artistID, p)
-	return m.push(p)
-}
-
-// openArtist pushes the top tracks of the selected row's first artist.
+// openArtist pushes the discography of the selected row's artist. Spotify
+// blocks the top-tracks endpoint for development-mode apps, so albums and
+// singles are the artist view.
 func (m *Model) openArtist(it *item) tea.Cmd {
 	if it == nil || it.artistID == "" {
 		return nil
@@ -277,10 +264,9 @@ func (m *Model) openArtist(it *item) tea.Cmd {
 	if it.kind != kindArtist {
 		name = strings.SplitN(it.sub, ",", 2)[0]
 	}
-	p := &page{kind: pageTracks, title: name + "  " + dimStyle.Render("top tracks"), loading: true}
-	m.stack = append(m.stack, p)
-	m.focus = focusContent
-	return fetchArtistTop(m.client, it.artistID, m.country, p)
+	p := &page{kind: pageAlbums, title: name + "  " + dimStyle.Render("albums & singles")}
+	p.load = artistAlbumsLoader(m.client, it.artistID, p)
+	return m.push(p)
 }
 
 func (m *Model) openAlbum(it *item) tea.Cmd {
@@ -592,13 +578,15 @@ func (m Model) handleContentKey(key string) (tea.Model, tea.Cmd) {
 		p.clamp(h)
 		return m, m.maybeLoadMore(p)
 	case "enter":
+		if len(p.items) == 0 && p.loadErr != nil && p.context != "" {
+			// Listing is blocked but playing the context usually still works.
+			return m, playContext(m.client, p.context, "")
+		}
 		return m, m.activate(p.selected())
 	case "a":
 		if it := p.selected(); it != nil && it.kind == kindTrack {
 			return m, addToQueue(m.client, it.id)
 		}
-	case "A":
-		return m, m.openArtistAlbums(p.selected())
 	case "e":
 		return m, m.openArtist(p.selected())
 	case "b":

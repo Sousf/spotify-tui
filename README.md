@@ -41,10 +41,24 @@ The first run opens a browser to authorize. The token is cached in
 | `d` `u` | devices / queue |
 | `a` | add selected track to queue |
 | `f` `F` | save / unsave selected track |
-| `e` `A` `b` | jump to the selected track's artist, artist albums, or album |
+| `e` `b` | jump to the selected track's artist or album |
 | `R` | reload |
 | `?` | help |
 | `q` | quit |
+
+## Limits of a development-mode app
+
+Spotify restricts apps that are not approved for production. What you will
+notice here:
+
+- Playlists owned by other users return 403 when listing their tracks. You
+  can still press enter on the empty page to play the whole playlist.
+- The artist top-tracks endpoint is blocked, so an artist opens as their
+  albums and singles.
+- Only the account that created the app (plus up to 25 users you add under
+  "User Management" in the dashboard) can log in.
+- Creating the app needs a Premium account, and each account gets one
+  development-mode app.
 
 ## Files
 

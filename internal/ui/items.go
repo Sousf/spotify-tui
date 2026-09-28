@@ -208,7 +208,6 @@ func playlistItem(p spotify.SimplePlaylist) item {
 		uri:   p.URI,
 		title: p.Name,
 		sub:   p.Owner.DisplayName,
-		extra: fmt.Sprintf("%d tracks", p.Tracks.Total),
 	}
 }
 

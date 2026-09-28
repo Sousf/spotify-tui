@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -11,7 +12,7 @@ import (
 )
 
 func fakeModel(w, h int) Model {
-	m := New(nil)
+	m := New(http.DefaultClient)
 	mm, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	m = mm.(Model)
 	var items []item

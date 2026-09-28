@@ -10,7 +10,7 @@ import (
 
 func TestPlaylistLoaderParsesTracks(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/playlists/abc/tracks" {
+		if r.URL.Path != "/playlists/abc/items" {
 			t.Errorf("unexpected path %s", r.URL.Path)
 		}
 		if got := r.URL.Query().Get("offset"); got != "50" {
@@ -18,15 +18,15 @@ func TestPlaylistLoaderParsesTracks(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"total": 120, "items": [
-			{"track": {"type":"track","id":"t1","uri":"spotify:track:t1","name":"One","duration_ms":61000,
+			{"item": {"type":"track","id":"t1","uri":"spotify:track:t1","name":"One","duration_ms":61000,
 			  "artists":[{"id":"a1","name":"Ann"},{"id":"a2","name":"Bob"}],"album":{"id":"al1","name":"Alb"}}},
-			{"track": null},
-			{"track": {"type":"episode","id":"e1","name":"Pod"}}
+			{"item": null},
+			{"item": {"type":"episode","id":"e1","name":"Pod"}}
 		]}`))
 	}))
 	defer srv.Close()
 
-	c := spotify.New(srv.Client(), spotify.WithBaseURL(srv.URL+"/"))
+	c := &api{Client: spotify.New(srv.Client(), spotify.WithBaseURL(srv.URL+"/")), http: srv.Client(), base: srv.URL + "/"}
 	p := &page{kind: pageTracks}
 	msg := playlistLoader(c, "abc", p)(50)().(pageLoadedMsg)
 	if msg.err != nil {
@@ -53,7 +53,7 @@ func TestFriendlyErrNoDevice(t *testing.T) {
 		w.Write([]byte(`{"error":{"status":404,"message":"Player command failed: No active device found"}}`))
 	}))
 	defer srv.Close()
-	c := spotify.New(srv.Client(), spotify.WithBaseURL(srv.URL+"/"))
+	c := &api{Client: spotify.New(srv.Client(), spotify.WithBaseURL(srv.URL+"/")), http: srv.Client(), base: srv.URL + "/"}
 	msg := next(c)().(actionDoneMsg)
 	if msg.err == nil || msg.err.Error() != "no active device. Open Spotify somewhere, then press d to pick it" {
 		t.Errorf("got %v", msg.err)

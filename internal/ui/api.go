@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -10,7 +11,15 @@ import (
 	"github.com/zmb3/spotify/v2"
 )
 
-const pageSize = 50
+const (
+	pageSize = 50
+	// Spotify caps artist albums and search at 10 per page for new apps.
+	smallPageSize = 10
+)
+
+// errForbidden is what development-mode apps get for content Spotify has
+// walled off, most visibly playlists owned by other users.
+var errForbidden = errors.New("Spotify blocks development-mode apps from reading this")
 
 // Messages produced by API commands.
 type (
@@ -64,6 +73,8 @@ func friendlyErr(err error) error {
 			return errors.New("no active device. Open Spotify somewhere, then press d to pick it")
 		case se.Status == 403 && strings.Contains(strings.ToLower(se.Message), "premium"):
 			return errors.New("Spotify Premium is required to control playback")
+		case se.Status == 403:
+			return errForbidden
 		case se.Status == 429:
 			return errors.New("rate limited by Spotify, slow down a little")
 		case se.Status == 401:
@@ -74,7 +85,7 @@ func friendlyErr(err error) error {
 	return err
 }
 
-func fetchPlayerState(c *spotify.Client) tea.Cmd {
+func fetchPlayerState(c *api) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := apiCtx()
 		defer cancel()
@@ -83,7 +94,7 @@ func fetchPlayerState(c *spotify.Client) tea.Cmd {
 	}
 }
 
-func fetchUser(c *spotify.Client) tea.Cmd {
+func fetchUser(c *api) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := apiCtx()
 		defer cancel()
@@ -93,24 +104,28 @@ func fetchUser(c *spotify.Client) tea.Cmd {
 }
 
 // fetchPlaylists walks every page of the user's playlists for the sidebar.
-func fetchPlaylists(c *spotify.Client) tea.Cmd {
+func fetchPlaylists(c *api) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
-		pg, err := c.CurrentUsersPlaylists(ctx, spotify.Limit(pageSize))
-		if err != nil {
-			return playlistsMsg{err: friendlyErr(err)}
-		}
 		var items []item
-		for {
-			for _, p := range pg.Playlists {
-				items = append(items, playlistItem(p))
-			}
-			if err := c.NextPage(ctx, pg); err != nil {
-				if errors.Is(err, spotify.ErrNoMorePages) {
-					break
-				}
+		for offset := 0; ; offset += pageSize {
+			pg, err := c.myPlaylists(ctx, pageSize, offset)
+			if err != nil {
 				return playlistsMsg{items: items, err: friendlyErr(err)}
+			}
+			for _, p := range pg.Items {
+				items = append(items, item{
+					kind:  kindPlaylist,
+					id:    p.ID,
+					uri:   p.URI,
+					title: p.Name,
+					sub:   p.Owner.DisplayName,
+					extra: fmt.Sprintf("%d tracks", p.Items.Total),
+				})
+			}
+			if pg.Next == "" || len(pg.Items) == 0 {
+				break
 			}
 		}
 		return playlistsMsg{items: items}
@@ -120,7 +135,7 @@ func fetchPlaylists(c *spotify.Client) tea.Cmd {
 // Loaders: each returns a loader closure bound to a page so the page can
 // pull more rows as the cursor approaches the end.
 
-func likedLoader(c *spotify.Client, target *page) loader {
+func likedLoader(c *api, target *page) loader {
 	return func(offset int) tea.Cmd {
 		return func() tea.Msg {
 			ctx, cancel := apiCtx()
@@ -138,28 +153,21 @@ func likedLoader(c *spotify.Client, target *page) loader {
 	}
 }
 
-func playlistLoader(c *spotify.Client, id spotify.ID, target *page) loader {
+func playlistLoader(c *api, id spotify.ID, target *page) loader {
 	return func(offset int) tea.Cmd {
 		return func() tea.Msg {
 			ctx, cancel := apiCtx()
 			defer cancel()
-			pg, err := c.GetPlaylistItems(ctx, id, spotify.Limit(pageSize), spotify.Offset(offset))
+			items, total, err := c.playlistItems(ctx, id, pageSize, offset)
 			if err != nil {
 				return pageLoadedMsg{target: target, err: friendlyErr(err)}
 			}
-			items := make([]item, 0, len(pg.Items))
-			for _, pi := range pg.Items {
-				if pi.Track.Track == nil {
-					continue // episode or unavailable track
-				}
-				items = append(items, trackItem(*pi.Track.Track))
-			}
-			return pageLoadedMsg{target: target, items: items, total: int(pg.Total), offset: offset}
+			return pageLoadedMsg{target: target, items: items, total: total, offset: offset}
 		}
 	}
 }
 
-func albumLoader(c *spotify.Client, album spotify.SimpleAlbum, target *page) loader {
+func albumLoader(c *api, album spotify.SimpleAlbum, target *page) loader {
 	return func(offset int) tea.Cmd {
 		return func() tea.Msg {
 			ctx, cancel := apiCtx()
@@ -177,7 +185,7 @@ func albumLoader(c *spotify.Client, album spotify.SimpleAlbum, target *page) loa
 	}
 }
 
-func savedAlbumsLoader(c *spotify.Client, target *page) loader {
+func savedAlbumsLoader(c *api, target *page) loader {
 	return func(offset int) tea.Cmd {
 		return func() tea.Msg {
 			ctx, cancel := apiCtx()
@@ -195,13 +203,13 @@ func savedAlbumsLoader(c *spotify.Client, target *page) loader {
 	}
 }
 
-func artistAlbumsLoader(c *spotify.Client, id spotify.ID, target *page) loader {
+func artistAlbumsLoader(c *api, id spotify.ID, target *page) loader {
 	return func(offset int) tea.Cmd {
 		return func() tea.Msg {
 			ctx, cancel := apiCtx()
 			defer cancel()
 			types := []spotify.AlbumType{spotify.AlbumTypeAlbum, spotify.AlbumTypeSingle}
-			pg, err := c.GetArtistAlbums(ctx, id, types, spotify.Limit(pageSize), spotify.Offset(offset))
+			pg, err := c.GetArtistAlbums(ctx, id, types, spotify.Limit(smallPageSize), spotify.Offset(offset))
 			if err != nil {
 				return pageLoadedMsg{target: target, err: friendlyErr(err)}
 			}
@@ -216,7 +224,7 @@ func artistAlbumsLoader(c *spotify.Client, id spotify.ID, target *page) loader {
 
 // followedArtistsLoader paginates with a cursor rather than an offset. The
 // page stores the cursor in its "after" field between calls.
-func followedArtistsLoader(c *spotify.Client, target *page) loader {
+func followedArtistsLoader(c *api, target *page) loader {
 	return func(offset int) tea.Cmd {
 		after := target.after
 		return func() tea.Msg {
@@ -239,26 +247,7 @@ func followedArtistsLoader(c *spotify.Client, target *page) loader {
 	}
 }
 
-func fetchArtistTop(c *spotify.Client, id spotify.ID, country string, target *page) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := apiCtx()
-		defer cancel()
-		if country == "" {
-			country = "from_token"
-		}
-		tracks, err := c.GetArtistsTopTracks(ctx, id, country)
-		if err != nil {
-			return pageLoadedMsg{target: target, err: friendlyErr(err)}
-		}
-		items := make([]item, 0, len(tracks))
-		for _, t := range tracks {
-			items = append(items, trackItem(t))
-		}
-		return pageLoadedMsg{target: target, items: items, total: len(items)}
-	}
-}
-
-func fetchDevices(c *spotify.Client, target *page) tea.Cmd {
+func fetchDevices(c *api, target *page) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := apiCtx()
 		defer cancel()
@@ -274,7 +263,7 @@ func fetchDevices(c *spotify.Client, target *page) tea.Cmd {
 	}
 }
 
-func fetchQueue(c *spotify.Client, target *page) tea.Cmd {
+func fetchQueue(c *api, target *page) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := apiCtx()
 		defer cancel()
@@ -290,12 +279,12 @@ func fetchQueue(c *spotify.Client, target *page) tea.Cmd {
 	}
 }
 
-func runSearch(c *spotify.Client, query string, target *page) tea.Cmd {
+func runSearch(c *api, query string, target *page) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := apiCtx()
 		defer cancel()
 		kinds := spotify.SearchTypeTrack | spotify.SearchTypeArtist | spotify.SearchTypeAlbum | spotify.SearchTypePlaylist
-		res, err := c.Search(ctx, query, kinds, spotify.Limit(20))
+		res, err := c.Search(ctx, query, kinds, spotify.Limit(smallPageSize))
 		if err != nil {
 			return searchDoneMsg{target: target, err: friendlyErr(err)}
 		}
@@ -338,7 +327,7 @@ func action(what string, f func(ctx context.Context) error) tea.Cmd {
 	}
 }
 
-func playContext(c *spotify.Client, contextURI spotify.URI, track spotify.URI) tea.Cmd {
+func playContext(c *api, contextURI spotify.URI, track spotify.URI) tea.Cmd {
 	return action("play", func(ctx context.Context) error {
 		opts := &spotify.PlayOptions{PlaybackContext: &contextURI}
 		if track != "" {
@@ -350,7 +339,7 @@ func playContext(c *spotify.Client, contextURI spotify.URI, track spotify.URI) t
 
 // playURIs plays a flat list of tracks starting at index. Used for search
 // results and other lists that are not a Spotify context.
-func playURIs(c *spotify.Client, uris []spotify.URI, index int) tea.Cmd {
+func playURIs(c *api, uris []spotify.URI, index int) tea.Cmd {
 	return action("play", func(ctx context.Context) error {
 		return c.PlayOpt(ctx, &spotify.PlayOptions{
 			URIs:           uris,
@@ -359,38 +348,38 @@ func playURIs(c *spotify.Client, uris []spotify.URI, index int) tea.Cmd {
 	})
 }
 
-func resume(c *spotify.Client) tea.Cmd {
+func resume(c *api) tea.Cmd {
 	return action("play", func(ctx context.Context) error { return c.Play(ctx) })
 }
 
-func pause(c *spotify.Client) tea.Cmd {
+func pause(c *api) tea.Cmd {
 	return action("pause", func(ctx context.Context) error { return c.Pause(ctx) })
 }
 
-func next(c *spotify.Client) tea.Cmd {
+func next(c *api) tea.Cmd {
 	return action("next", func(ctx context.Context) error { return c.Next(ctx) })
 }
 
-func previous(c *spotify.Client) tea.Cmd {
+func previous(c *api) tea.Cmd {
 	return action("previous", func(ctx context.Context) error { return c.Previous(ctx) })
 }
 
-func seek(c *spotify.Client, pos time.Duration) tea.Cmd {
+func seek(c *api, pos time.Duration) tea.Cmd {
 	if pos < 0 {
 		pos = 0
 	}
 	return action("seek", func(ctx context.Context) error { return c.Seek(ctx, int(pos.Milliseconds())) })
 }
 
-func setShuffle(c *spotify.Client, on bool) tea.Cmd {
+func setShuffle(c *api, on bool) tea.Cmd {
 	return action("shuffle", func(ctx context.Context) error { return c.Shuffle(ctx, on) })
 }
 
-func setRepeat(c *spotify.Client, state string) tea.Cmd {
+func setRepeat(c *api, state string) tea.Cmd {
 	return action("repeat", func(ctx context.Context) error { return c.Repeat(ctx, state) })
 }
 
-func setVolume(c *spotify.Client, pct int) tea.Cmd {
+func setVolume(c *api, pct int) tea.Cmd {
 	if pct < 0 {
 		pct = 0
 	}
@@ -400,19 +389,19 @@ func setVolume(c *spotify.Client, pct int) tea.Cmd {
 	return action("volume", func(ctx context.Context) error { return c.Volume(ctx, pct) })
 }
 
-func transfer(c *spotify.Client, id spotify.ID) tea.Cmd {
+func transfer(c *api, id spotify.ID) tea.Cmd {
 	return action("transfer", func(ctx context.Context) error { return c.TransferPlayback(ctx, id, true) })
 }
 
-func addToQueue(c *spotify.Client, id spotify.ID) tea.Cmd {
+func addToQueue(c *api, id spotify.ID) tea.Cmd {
 	return action("queue", func(ctx context.Context) error { return c.QueueSong(ctx, id) })
 }
 
-func saveTrack(c *spotify.Client, id spotify.ID) tea.Cmd {
+func saveTrack(c *api, id spotify.ID) tea.Cmd {
 	return action("save", func(ctx context.Context) error { return c.AddTracksToLibrary(ctx, id) })
 }
 
-func unsaveTrack(c *spotify.Client, id spotify.ID) tea.Cmd {
+func unsaveTrack(c *api, id spotify.ID) tea.Cmd {
 	return action("unsave", func(ctx context.Context) error { return c.RemoveTracksFromLibrary(ctx, id) })
 }
 
