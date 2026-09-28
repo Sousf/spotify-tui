@@ -24,6 +24,31 @@ The setup command prints the steps. In short:
 The first run opens a browser to authorize. The token is cached in
 `~/.config/spotify-tui/token.json` and refreshed automatically after that.
 
+## Playing on this machine
+
+The TUI needs a device running Spotify to control. On Linux the lightest
+option is `spotifyd`, a headless Spotify Connect player:
+
+```
+sudo pacman -S spotifyd            # Arch; other distros package it too
+mkdir -p ~/.config/spotifyd
+cat > ~/.config/spotifyd/spotifyd.conf <<EOF
+[global]
+device_name = "$(cat /etc/hostname)"
+device_type = "computer"
+backend = "pulseaudio"             # works with PipeWire via pipewire-pulse
+bitrate = 320
+cache_path = "$HOME/.cache/spotifyd"
+use_mpris = true
+dbus_type = "session"
+EOF
+spotifyd authenticate              # prints a URL, open it and approve
+systemctl --user enable --now spotifyd.service
+```
+
+`spotify-tui status` should then list the machine as a device, and enter on a
+track plays through it. Playback needs Premium.
+
 ## Keys
 
 | Key | Action |
