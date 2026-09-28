@@ -9,12 +9,14 @@
 //	spotify-tui login      authorize in the browser without starting the UI
 //	spotify-tui status     print devices and what is playing, for debugging
 //	spotify-tui logout     forget the cached token
+//	spotify-tui log        print the log file path
 package main
 
 import (
 	"bufio"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -24,6 +26,7 @@ import (
 	"github.com/zmb3/spotify/v2"
 
 	"github.com/Sousf/spotify-tui/internal/auth"
+	"github.com/Sousf/spotify-tui/internal/logging"
 	"github.com/Sousf/spotify-tui/internal/ui"
 )
 
@@ -35,6 +38,21 @@ func main() {
 }
 
 func run() error {
+	if len(os.Args) > 1 && os.Args[1] == "log" {
+		p, err := logging.Path()
+		if err != nil {
+			return err
+		}
+		fmt.Println(p)
+		return nil
+	}
+	logFile, err := logging.Setup()
+	if err != nil {
+		return fmt.Errorf("open log file: %w", err)
+	}
+	defer logFile.Close()
+	defer slog.Info("exit")
+
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "setup":
@@ -72,10 +90,15 @@ func run() error {
 
 	httpClient, err := auth.Login(ctx, cfg, os.Stderr)
 	if err != nil {
+		slog.Error("login", "err", err)
 		return err
 	}
+	httpClient.Transport = logging.Transport{Base: httpClient.Transport}
 	p := tea.NewProgram(ui.New(httpClient), tea.WithAltScreen())
 	_, err = p.Run()
+	if err != nil {
+		slog.Error("program", "err", err)
+	}
 	return err
 }
 
@@ -95,6 +118,7 @@ func login() error {
 	if err != nil {
 		return err
 	}
+	httpClient.Transport = logging.Transport{Base: httpClient.Transport}
 	u, err := spotify.New(httpClient).CurrentUser(ctx)
 	if err != nil {
 		return err
@@ -115,6 +139,7 @@ func status() error {
 	if err != nil {
 		return err
 	}
+	httpClient.Transport = logging.Transport{Base: httpClient.Transport}
 	c := spotify.New(httpClient)
 	u, err := c.CurrentUser(ctx)
 	if err != nil {
@@ -187,9 +212,15 @@ const usage = `spotify-tui: a terminal remote for Spotify
   spotify-tui login    authorize in the browser without starting the UI
   spotify-tui status   print devices and what is playing, for debugging
   spotify-tui logout   forget the cached login
+  spotify-tui log      print the log file path
+
+Every run writes a log of API calls and errors to
+$XDG_STATE_HOME/spotify-tui/spotify-tui.log (default ~/.local/state).
+Set SPOTIFY_TUI_DEBUG=1 to also log successful requests and key presses.
 
 Environment:
   SPOTIFY_TUI_CLIENT_ID   overrides the client ID in config.json
+  SPOTIFY_TUI_DEBUG       verbose logging
   XDG_CONFIG_HOME         config lives in $XDG_CONFIG_HOME/spotify-tui
 `
 

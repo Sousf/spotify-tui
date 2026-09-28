@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -326,7 +327,13 @@ func action(what string, f func(ctx context.Context) error) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := apiCtx()
 		defer cancel()
-		return actionDoneMsg{what: what, err: friendlyErr(f(ctx))}
+		err := friendlyErr(f(ctx))
+		if err != nil {
+			slog.Warn("action failed", "what", what, "err", err)
+		} else {
+			slog.Debug("action ok", "what", what)
+		}
+		return actionDoneMsg{what: what, err: err}
 	}
 }
 
@@ -365,13 +372,22 @@ func play(c *api, req playReq) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := apiCtx()
 		defer cancel()
+		slog.Info("play", "context", req.context, "track", req.track, "uris", len(req.uris))
 		err := c.PlayOpt(ctx, req.options())
 		if !errors.Is(friendlyErr(err), errNoDevice) {
+			if err != nil {
+				slog.Warn("play failed", "err", err)
+			}
 			return actionDoneMsg{what: "play", err: friendlyErr(err)}
 		}
+		slog.Info("play: no active device, listing devices")
 		devs, derr := c.PlayerDevices(ctx)
 		if derr != nil {
+			slog.Warn("play: device list failed", "err", derr)
 			return actionDoneMsg{what: "play", err: friendlyErr(derr)}
+		}
+		for _, d := range devs {
+			slog.Info("play: device", "name", d.Name, "type", d.Type, "id", d.ID, "active", d.Active, "restricted", d.Restricted)
 		}
 		var pick *spotify.PlayerDevice
 		for i := range devs {
@@ -384,10 +400,13 @@ func play(c *api, req playReq) tea.Cmd {
 			}
 		}
 		if pick == nil {
+			slog.Warn("play: no usable device", "count", len(devs))
 			return actionDoneMsg{what: "play", err: errors.New("no Spotify devices found. Open the Spotify app on this computer or your phone, then try again")}
 		}
 		req.device = pick.ID
+		slog.Info("play: retrying on device", "name", pick.Name, "id", pick.ID)
 		if err := c.PlayOpt(ctx, req.options()); err != nil {
+			slog.Warn("play: retry failed", "err", err)
 			return actionDoneMsg{what: "play", err: friendlyErr(err)}
 		}
 		return actionDoneMsg{what: "play", info: "Playing on " + pick.Name}

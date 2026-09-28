@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -178,8 +179,10 @@ func (p *persistingSource) Token() (*oauth2.Token, error) {
 	if p.tok.Valid() {
 		return p.tok, nil
 	}
+	slog.Info("auth: refreshing token", "expired_at", p.tok.Expiry)
 	tok, err := p.authr.RefreshToken(p.ctx, p.tok)
 	if err != nil {
+		slog.Error("auth: refresh failed", "err", err)
 		return nil, err
 	}
 	if tok.RefreshToken == "" {
@@ -207,6 +210,7 @@ func Login(ctx context.Context, cfg Config, out io.Writer) (*http.Client, error)
 
 	tok, err := loadToken()
 	if err != nil {
+		slog.Info("auth: no cached token, starting browser flow", "reason", err)
 		tok, err = browserFlow(ctx, authr, cfg.Port, out)
 		if err != nil {
 			return nil, err
@@ -214,6 +218,9 @@ func Login(ctx context.Context, cfg Config, out io.Writer) (*http.Client, error)
 		if err := saveToken(tok); err != nil {
 			return nil, err
 		}
+		slog.Info("auth: logged in via browser")
+	} else {
+		slog.Info("auth: using cached token", "expires", tok.Expiry, "valid", tok.Valid())
 	}
 
 	src := &persistingSource{ctx: ctx, authr: authr, tok: tok}

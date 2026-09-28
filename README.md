@@ -60,6 +60,18 @@ notice here:
 - Creating the app needs a Premium account, and each account gets one
   development-mode app.
 
+## Troubleshooting
+
+Every run writes `~/.local/state/spotify-tui/spotify-tui.log` (truncated on
+start, so it holds the latest session). It records every failed API call with
+Spotify's response body, page loads, play requests, and the device fallback.
+`spotify-tui log` prints the path. Set `SPOTIFY_TUI_DEBUG=1` to also log
+successful requests and key presses.
+
+`spotify-tui status` prints the account, playlist count, devices, and what is
+playing without starting the interface. Zero devices means no Spotify app is
+running on the account; open one on a phone or computer and check again.
+
 ## Files
 
 `~/.config/spotify-tui/config.json` holds the client ID and callback port.

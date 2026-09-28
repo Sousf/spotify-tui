@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -325,6 +326,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		slog.Debug("key", "key", msg.String(), "focus", m.focus)
 		return m.handleKey(msg)
 
 	case tickMsg:
@@ -344,8 +346,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case playerStateMsg:
 		if msg.err != nil {
+			slog.Warn("player state", "err", msg.err)
 			m.setStatus(msg.err.Error(), true)
 			return m, nil
+		}
+		if msg.state == nil && m.state != nil || msg.state != nil && m.state == nil {
+			slog.Info("player state changed", "present", msg.state != nil)
 		}
 		m.state = msg.state
 		m.stateAt = time.Now()
@@ -362,8 +368,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case playlistsMsg:
 		if msg.err != nil {
+			slog.Warn("playlists", "err", msg.err)
 			m.setStatus("playlists: "+msg.err.Error(), true)
 		}
+		slog.Info("playlists loaded", "count", len(msg.items))
 		m.library.items = libraryEntries(msg.items)
 		m.library.clamp(m.libraryHeight())
 		return m, nil
@@ -372,10 +380,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		p := msg.target
 		p.loading = false
 		if msg.err != nil {
+			slog.Warn("page load failed", "page", p.title, "kind", p.kind, "err", msg.err)
 			p.loadErr = msg.err
 			m.setStatus(msg.err.Error(), true)
 			return m, nil
 		}
+		slog.Info("page loaded", "page", p.title, "kind", p.kind, "items", len(msg.items), "offset", msg.offset, "total", msg.total)
 		if msg.offset == 0 && p.load != nil && p.after == "" {
 			p.items = msg.items
 		} else if p.load == nil {
@@ -395,9 +405,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		p := msg.target
 		p.loading = false
 		if msg.err != nil {
+			slog.Warn("search failed", "query", p.query, "err", msg.err)
 			m.setStatus(msg.err.Error(), true)
 			return m, nil
 		}
+		slog.Info("search done", "query", p.query, "tracks", len(msg.results[0]), "artists", len(msg.results[1]), "albums", len(msg.results[2]), "playlists", len(msg.results[3]))
 		p.searchResults = msg.results
 		// Land on the first tab with results.
 		tab := 0
@@ -415,6 +427,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setStatus(msg.err.Error(), true)
 			return m, nil
 		}
+		slog.Debug("action done", "what", msg.what, "info", msg.info)
 		switch msg.what {
 		case "play":
 			if msg.info != "" {
