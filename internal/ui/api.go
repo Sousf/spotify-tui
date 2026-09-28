@@ -19,6 +19,8 @@ const (
 
 // errForbidden is what development-mode apps get for content Spotify has
 // walled off, most visibly playlists owned by other users.
+var errNoDevice = errors.New("no active device. Open Spotify somewhere, then press d to pick it")
+
 var errForbidden = errors.New("Spotify blocks development-mode apps from reading this")
 
 // Messages produced by API commands.
@@ -50,6 +52,7 @@ type (
 	}
 	actionDoneMsg struct {
 		what string
+		info string // optional status text on success
 		err  error
 	}
 	tickMsg time.Time
@@ -70,7 +73,7 @@ func friendlyErr(err error) error {
 	if errors.As(err, &se) {
 		switch {
 		case se.Status == 404 && strings.Contains(strings.ToLower(se.Message), "device"):
-			return errors.New("no active device. Open Spotify somewhere, then press d to pick it")
+			return errNoDevice
 		case se.Status == 403 && strings.Contains(strings.ToLower(se.Message), "premium"):
 			return errors.New("Spotify Premium is required to control playback")
 		case se.Status == 403:
@@ -327,25 +330,68 @@ func action(what string, f func(ctx context.Context) error) tea.Cmd {
 	}
 }
 
-func playContext(c *api, contextURI spotify.URI, track spotify.URI) tea.Cmd {
-	return action("play", func(ctx context.Context) error {
-		opts := &spotify.PlayOptions{PlaybackContext: &contextURI}
-		if track != "" {
-			opts.PlaybackOffset = &spotify.PlaybackOffset{URI: track}
-		}
-		return c.PlayOpt(ctx, opts)
-	})
+// playReq describes what to play so a request can be retried on a
+// specific device when Spotify reports no active one.
+type playReq struct {
+	context spotify.URI   // playlist or album context
+	track   spotify.URI   // track to start at within the context
+	uris    []spotify.URI // explicit list, used when context is empty
+	device  spotify.ID    // empty means the active device
 }
 
-// playURIs plays a flat list of tracks starting at index. Used for search
-// results and other lists that are not a Spotify context.
-func playURIs(c *api, uris []spotify.URI, index int) tea.Cmd {
-	return action("play", func(ctx context.Context) error {
-		return c.PlayOpt(ctx, &spotify.PlayOptions{
-			URIs:           uris,
-			PlaybackOffset: &spotify.PlaybackOffset{Position: &index},
-		})
-	})
+func (r playReq) options() *spotify.PlayOptions {
+	opts := &spotify.PlayOptions{}
+	if r.context != "" {
+		opts.PlaybackContext = &r.context
+		if r.track != "" {
+			opts.PlaybackOffset = &spotify.PlaybackOffset{URI: r.track}
+		}
+	} else {
+		opts.URIs = r.uris
+	}
+	if r.device != "" {
+		id := r.device
+		opts.DeviceID = &id
+	}
+	return opts
+}
+
+func play(c *api, req playReq) tea.Cmd {
+	if req.device != "" {
+		return action("play", func(ctx context.Context) error { return c.PlayOpt(ctx, req.options()) })
+	}
+	// First try the active device. If Spotify says there is none, fall back
+	// to whichever device is available, preferring an active or computer one.
+	return func() tea.Msg {
+		ctx, cancel := apiCtx()
+		defer cancel()
+		err := c.PlayOpt(ctx, req.options())
+		if !errors.Is(friendlyErr(err), errNoDevice) {
+			return actionDoneMsg{what: "play", err: friendlyErr(err)}
+		}
+		devs, derr := c.PlayerDevices(ctx)
+		if derr != nil {
+			return actionDoneMsg{what: "play", err: friendlyErr(derr)}
+		}
+		var pick *spotify.PlayerDevice
+		for i := range devs {
+			d := &devs[i]
+			if d.Restricted || d.ID == "" {
+				continue
+			}
+			if pick == nil || d.Active || (d.Type == "Computer" && pick.Type != "Computer") {
+				pick = d
+			}
+		}
+		if pick == nil {
+			return actionDoneMsg{what: "play", err: errors.New("no Spotify devices found. Open the Spotify app on this computer or your phone, then try again")}
+		}
+		req.device = pick.ID
+		if err := c.PlayOpt(ctx, req.options()); err != nil {
+			return actionDoneMsg{what: "play", err: friendlyErr(err)}
+		}
+		return actionDoneMsg{what: "play", info: "Playing on " + pick.Name}
+	}
 }
 
 func resume(c *api) tea.Cmd {

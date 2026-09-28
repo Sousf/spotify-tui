@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -55,7 +56,41 @@ func TestFriendlyErrNoDevice(t *testing.T) {
 	defer srv.Close()
 	c := &api{Client: spotify.New(srv.Client(), spotify.WithBaseURL(srv.URL+"/")), http: srv.Client(), base: srv.URL + "/"}
 	msg := next(c)().(actionDoneMsg)
-	if msg.err == nil || msg.err.Error() != "no active device. Open Spotify somewhere, then press d to pick it" {
+	if msg.err == nil || !errors.Is(msg.err, errNoDevice) {
 		t.Errorf("got %v", msg.err)
+	}
+}
+
+// TestPlayFallsBackToDevice checks that a play request retried on the first
+// available device when Spotify reports no active one.
+func TestPlayFallsBackToDevice(t *testing.T) {
+	var plays []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/me/player/play":
+			plays = append(plays, r.URL.Query().Get("device_id"))
+			if r.URL.Query().Get("device_id") == "" {
+				w.WriteHeader(404)
+				w.Write([]byte(`{"error":{"status":404,"message":"Player command failed: No active device found"}}`))
+				return
+			}
+			w.WriteHeader(204)
+		case "/me/player/devices":
+			w.Write([]byte(`{"devices":[{"id":"phone","name":"Phone","type":"Smartphone"},{"id":"mac","name":"Mac","type":"Computer"}]}`))
+		default:
+			t.Errorf("unexpected %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c := &api{Client: spotify.New(srv.Client(), spotify.WithBaseURL(srv.URL+"/")), http: srv.Client(), base: srv.URL + "/"}
+	msg := play(c, playReq{context: "spotify:album:x"})().(actionDoneMsg)
+	if msg.err != nil {
+		t.Fatal(msg.err)
+	}
+	if len(plays) != 2 || plays[0] != "" || plays[1] != "mac" {
+		t.Fatalf("play calls = %q, want retry on the computer", plays)
+	}
+	if msg.info != "Playing on Mac" {
+		t.Errorf("info = %q", msg.info)
 	}
 }

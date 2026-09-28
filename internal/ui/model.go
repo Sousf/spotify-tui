@@ -239,7 +239,7 @@ func (m *Model) playFrom(p *page) tea.Cmd {
 		return nil
 	}
 	if p.context != "" {
-		return playContext(m.client, p.context, it.uri)
+		return play(m.client, playReq{context: p.context, track: it.uri})
 	}
 	const window = 100
 	end := len(p.items)
@@ -250,7 +250,7 @@ func (m *Model) playFrom(p *page) tea.Cmd {
 	for _, x := range p.items[p.cursor:end] {
 		uris = append(uris, x.uri)
 	}
-	return playURIs(m.client, uris, 0)
+	return play(m.client, playReq{uris: uris})
 }
 
 // openArtist pushes the discography of the selected row's artist. Spotify
@@ -416,6 +416,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		switch msg.what {
+		case "play":
+			if msg.info != "" {
+				m.setStatus(msg.info, false)
+			}
 		case "queue":
 			m.setStatus("Added to queue", false)
 		case "save":
@@ -580,7 +584,7 @@ func (m Model) handleContentKey(key string) (tea.Model, tea.Cmd) {
 	case "enter":
 		if len(p.items) == 0 && p.loadErr != nil && p.context != "" {
 			// Listing is blocked but playing the context usually still works.
-			return m, playContext(m.client, p.context, "")
+			return m, play(m.client, playReq{context: p.context})
 		}
 		return m, m.activate(p.selected())
 	case "a":
