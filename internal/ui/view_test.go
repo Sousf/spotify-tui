@@ -9,6 +9,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/zmb3/spotify/v2"
+
+	"github.com/Sousf/spotify-tui/internal/viz"
 )
 
 func fakeModel(w, h int) Model {
@@ -73,6 +75,20 @@ func TestViewFitsTerminal(t *testing.T) {
 		m.showHelp = true
 		checkFrame(t, "help", m.View(), w, h)
 		m.showHelp = false
+
+		m.showViz = true
+		m.vizErr = nil
+		n := m.vizBarCount()
+		m.vizLevels = make([]float64, n)
+		m.vizPeaks = make([]float64, n)
+		for i := range m.vizLevels {
+			m.vizLevels[i] = float64(i%7) / 6
+			m.vizPeaks[i] = 1
+		}
+		m.viz = &viz.Capture{}
+		checkFrame(t, "viz", m.View(), w, h)
+		m.viz = nil
+		m.showViz = false
 
 		mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
 		m = mm.(Model)

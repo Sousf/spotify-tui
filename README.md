@@ -39,6 +39,7 @@ The first run opens a browser to authorize. The token is cached in
 | `+` `-` | volume |
 | `s` `r` | shuffle / repeat |
 | `d` `u` | devices / queue |
+| `v` | audio visualiser (reads the PipeWire output monitor via `parec`) |
 | `a` | add selected track to queue |
 | `f` `F` | save / unsave selected track |
 | `e` `b` | jump to the selected track's artist or album |

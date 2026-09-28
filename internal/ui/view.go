@@ -27,7 +27,12 @@ func (m Model) View() string {
 		top = m.renderHelp(m.width, paneH)
 	} else {
 		left := m.renderLibrary(sidebarWidth, paneH)
-		right := m.renderContent(contentW, paneH)
+		var right string
+		if m.showViz {
+			right = m.renderViz(contentW, paneH)
+		} else {
+			right = m.renderContent(contentW, paneH)
+		}
 		top = lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, top, m.renderNowPlaying(), m.statusLine())
@@ -344,6 +349,7 @@ func (m Model) renderHelp(w, h int) string {
 			{"r", "cycle repeat"},
 			{"d", "devices"},
 			{"u", "queue"},
+			{"v", "toggle visualiser"},
 		}},
 		{"Selected track", []row{
 			{"a", "add to queue"},
@@ -392,4 +398,86 @@ func (m Model) renderHelp(w, h int) string {
 		rows = append(rows, strings.Repeat(" ", inner))
 	}
 	return paneStyle.Width(inner).Height(h - 2).Render(strings.Join(rows, "\n"))
+}
+
+var vizPartial = []rune{' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
+
+// vizColor grades a bar from green at the bottom to red at the top.
+func vizColor(frac float64) lipgloss.Style {
+	switch {
+	case frac > 0.85:
+		return lipgloss.NewStyle().Foreground(red)
+	case frac > 0.6:
+		return lipgloss.NewStyle().Foreground(yellow)
+	default:
+		return lipgloss.NewStyle().Foreground(green)
+	}
+}
+
+func (m Model) renderViz(w, h int) string {
+	inner := w - 2
+	rows := []string{titleStyle.Render(pad("Visualiser", inner-14)) + dimStyle.Render(pad("v to close", 14))}
+	height := h - 2 - len(rows)
+	if height < 1 {
+		height = 1
+	}
+	if m.vizErr != nil {
+		rows = append(rows, errorStyle.Render(pad("  "+m.vizErr.Error(), inner)))
+	} else if m.viz == nil || len(m.vizLevels) == 0 {
+		rows = append(rows, dimStyle.Render(pad("  listening…", inner)))
+	} else {
+		n := len(m.vizLevels)
+		// Each bar is one cell wide with a one-cell gap, centred in the pane.
+		used := n*2 - 1
+		lead := (inner - used) / 2
+		if lead < 0 {
+			lead = 0
+		}
+		// Pre-render each bar as a column of runes, top row first.
+		cols := make([][]string, n)
+		for b := 0; b < n; b++ {
+			level := m.vizLevels[b]
+			peak := m.vizPeaks[b]
+			eighths := int(level*float64(height)*8 + 0.5)
+			peakRow := height - 1 - int(peak*float64(height-1)+0.5)
+			col := make([]string, height)
+			for r := 0; r < height; r++ {
+				fromBottom := height - 1 - r // rows counted from the floor
+				full := eighths / 8
+				frac := float64(fromBottom+1) / float64(height)
+				var ch rune
+				switch {
+				case fromBottom < full:
+					ch = '█'
+				case fromBottom == full:
+					ch = vizPartial[eighths%8]
+				default:
+					ch = ' '
+				}
+				cell := string(ch)
+				if ch != ' ' {
+					cell = vizColor(frac).Render(cell)
+				} else if r == peakRow && peak > 0.02 {
+					cell = dimStyle.Render("▔")
+				}
+				col[r] = cell
+			}
+			cols[b] = col
+		}
+		for r := 0; r < height; r++ {
+			var line strings.Builder
+			line.WriteString(strings.Repeat(" ", lead))
+			for b := 0; b < n; b++ {
+				if b > 0 {
+					line.WriteByte(' ')
+				}
+				line.WriteString(cols[b][r])
+			}
+			rows = append(rows, pad(line.String(), inner))
+		}
+	}
+	for len(rows) < h-2 {
+		rows = append(rows, strings.Repeat(" ", inner))
+	}
+	return m.paneStyleFor(focusContent).Width(inner).Height(h - 2).Render(strings.Join(rows, "\n"))
 }

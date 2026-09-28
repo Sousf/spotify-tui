@@ -11,6 +11,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/zmb3/spotify/v2"
+
+	"github.com/Sousf/spotify-tui/internal/viz"
 )
 
 type focus int
@@ -25,7 +27,8 @@ const (
 	sidebarWidth = 30
 	bottomHeight = 3 // now playing (2 lines) + status line
 	pollEvery    = 3 * time.Second
-	loadAhead    = 15 // rows before the end at which the next page is requested
+	vizFrame     = 33 * time.Millisecond // ~30 fps
+	loadAhead    = 15                    // rows before the end at which the next page is requested
 )
 
 // Model is the root bubbletea model.
@@ -46,6 +49,13 @@ type Model struct {
 	country  string
 
 	search textinput.Model
+
+	// visualiser, running only while shown
+	viz       *viz.Capture
+	showViz   bool
+	vizErr    error
+	vizLevels []float64
+	vizPeaks  []float64
 
 	status      string
 	statusErr   bool
@@ -344,6 +354,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case refreshMsg:
 		return m, fetchPlayerState(m.client)
 
+	case vizTickMsg:
+		if !m.showViz || m.viz == nil {
+			return m, nil
+		}
+		if err := m.viz.Err(); err != nil {
+			m.vizErr = err
+			m.viz = nil
+			return m, nil
+		}
+		m.vizLevels, m.vizPeaks = m.viz.Bars(m.vizBarCount())
+		return m, vizTick()
+
 	case playerStateMsg:
 		if msg.err != nil {
 			slog.Warn("player state", "err", msg.err)
@@ -454,6 +476,51 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 type refreshMsg struct{}
 
+type vizTickMsg struct{}
+
+func vizTick() tea.Cmd {
+	return tea.Tick(vizFrame, func(time.Time) tea.Msg { return vizTickMsg{} })
+}
+
+// vizBarCount is how many bars fit in the content pane: one cell per bar
+// plus a one-cell gap.
+func (m Model) vizBarCount() int {
+	n := (m.width - sidebarWidth - 2) / 2
+	if n < 4 {
+		n = 4
+	}
+	return n
+}
+
+func (m *Model) toggleViz() tea.Cmd {
+	if m.showViz {
+		m.showViz = false
+		m.viz.Stop()
+		m.viz = nil
+		slog.Info("visualiser stopped")
+		return nil
+	}
+	m.showViz = true
+	m.showHelp = false
+	m.vizErr = nil
+	c, err := viz.Start()
+	if err != nil {
+		slog.Warn("visualiser start failed", "err", err)
+		m.vizErr = err
+		return nil
+	}
+	slog.Info("visualiser started")
+	m.viz = c
+	return vizTick()
+}
+
+// Quit releases the recorder; bubbletea does not call anything on exit.
+func (m *Model) shutdown() {
+	if m.viz != nil {
+		m.viz.Stop()
+	}
+}
+
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
@@ -479,10 +546,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Global keys.
 	switch key {
 	case "ctrl+c", "q":
+		m.shutdown()
 		return m, tea.Quit
 	case "?":
 		m.showHelp = true
 		return m, nil
+	case "v":
+		return m, m.toggleViz()
 	case "/":
 		return m, m.startSearch()
 	case " ":
