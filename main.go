@@ -10,6 +10,7 @@
 //	spotify-tui status     print devices and what is playing, for debugging
 //	spotify-tui logout     forget the cached token
 //	spotify-tui log        print the log file path
+//	spotify-tui version    print the version
 package main
 
 import (
@@ -30,6 +31,10 @@ import (
 	"github.com/Sousf/spotify-tui/internal/ui"
 )
 
+// version is stamped at build time with -X main.version. Builds that skip it,
+// including `go build` in a checkout, report "dev".
+var version = "dev"
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "spotify-tui:", err)
@@ -38,6 +43,10 @@ func main() {
 }
 
 func run() error {
+	if len(os.Args) > 1 && (os.Args[1] == "version" || os.Args[1] == "--version") {
+		fmt.Println("spotify-tui", version)
+		return nil
+	}
 	if len(os.Args) > 1 && os.Args[1] == "log" {
 		p, err := logging.Path()
 		if err != nil {
@@ -213,6 +222,7 @@ const usage = `spotify-tui: a terminal remote for Spotify
   spotify-tui status   print devices and what is playing, for debugging
   spotify-tui logout   forget the cached login
   spotify-tui log      print the log file path
+  spotify-tui version  print the version
 
 Every run writes a log of API calls and errors to
 $XDG_STATE_HOME/spotify-tui/spotify-tui.log (default ~/.local/state).

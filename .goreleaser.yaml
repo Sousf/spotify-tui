@@ -1,0 +1,96 @@
+# GoReleaser builds spotify-tui for macOS and Linux on every tag, publishes a
+# GitHub release, and updates the Homebrew formula in Sousf/homebrew-tap.
+#
+# Release process is: git tag vX.Y.Z && git push --tags
+version: 2
+
+project_name: spotify-tui
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: spotify-tui
+    main: .
+    binary: spotify-tui
+    env:
+      # Pure Go, no cgo: the visualiser shells out to parec rather than
+      # linking libpulse, which is what keeps cross-compiling free.
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+
+archives:
+  - id: spotify-tui
+    ids: [spotify-tui]
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: checksums.txt
+
+# A formula rather than a cask so it installs on Linux workstations too; see
+# the note in hmon's config for the reasoning. homebrew-core has an unrelated,
+# disabled formula of the same name, so the tap-qualified name is required:
+# brew install Sousf/tap/spotify-tui
+brews:
+  - name: spotify-tui
+    ids: [spotify-tui]
+    repository:
+      owner: Sousf
+      name: homebrew-tap
+      branch: main
+      # Pushed over SSH with a deploy key scoped to the tap repo only.
+      git:
+        url: git@github.com:Sousf/homebrew-tap.git
+        private_key: "{{ .Env.HOMEBREW_TAP_DEPLOY_KEY_PATH }}"
+    directory: Formula
+    homepage: https://github.com/Sousf/spotify-tui
+    description: Terminal remote control for Spotify with an audio visualiser
+    license: MIT
+    commit_author:
+      name: goreleaser
+      email: noreply@github.com
+    install: |
+      bin.install "spotify-tui"
+    test: |
+      # `version` needs no config, network or TTY.
+      assert_match version.to_s, shell_output("#{bin}/spotify-tui version")
+    caveats: |
+      spotify-tui controls a device that is already running Spotify; it does
+      not play audio itself. Playback control needs Spotify Premium.
+
+      First run:
+
+        spotify-tui setup    # paste the Client ID from developer.spotify.com
+        spotify-tui          # opens the browser once to log in
+
+      The visualiser (v) reads the PipeWire/PulseAudio monitor through parec,
+      so on Linux it needs pulseaudio-utils or libpulse installed.
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+release:
+  footer: |
+    ## Install
+
+    ```sh
+    brew install Sousf/tap/spotify-tui
+    ```

@@ -1,0 +1,47 @@
+name: release
+
+# Releases are cut by pushing a tag:  git tag v0.1.0 && git push --tags
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # needed to create the GitHub release
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # GoReleaser builds its changelog from git history, so a shallow
+          # clone would produce an empty one.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache: true
+
+      # The formula is pushed to the tap over SSH using a deploy key scoped
+      # to that one repository. GoReleaser wants a path to the key, not its
+      # contents, so write it out with restrictive permissions first.
+      - name: Prepare tap deploy key
+        env:
+          DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        run: |
+          key_path="$RUNNER_TEMP/tap_deploy_key"
+          install -m 600 /dev/null "$key_path"
+          printf '%s\n' "$DEPLOY_KEY" > "$key_path"
+          echo "HOMEBREW_TAP_DEPLOY_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+
+          # Pin GitHub's host key rather than disabling host verification.
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

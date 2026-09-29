@@ -6,13 +6,27 @@ It drives the Spotify Web API, so it does not play audio itself. Open Spotify
 on your phone, desktop, or a speaker and this controls that device. Playback
 control needs Spotify Premium; browsing works on any account.
 
+## Install
+
+```
+brew install Sousf/tap/spotify-tui
+```
+
+The tap-qualified name matters: homebrew-core has an unrelated, retired
+formula called `spotify-tui`. Prebuilt binaries for macOS and Linux are also
+on the [releases page](https://github.com/Sousf/spotify-tui/releases), or
+build from source with Go 1.27+:
+
+```
+go install github.com/Sousf/spotify-tui@latest
+```
+
 ## Setup
 
 Spotify requires each user to register their own app, which takes two minutes.
 
 ```
-go build -o spotify-tui .
-./spotify-tui setup
+spotify-tui setup
 ```
 
 The setup command prints the steps. In short:
@@ -21,7 +35,7 @@ The setup command prints the steps. In short:
 2. Set the Redirect URI to `http://127.0.0.1:8888/callback` (must be exactly this, Spotify rejects `localhost`).
 3. Enable the Web API, save, and paste the Client ID into the prompt.
 
-The first run opens a browser to authorize. The token is cached in
+The first run of `spotify-tui` opens a browser to authorize. The token is cached in
 `~/.config/spotify-tui/token.json` and refreshed automatically after that.
 
 ## Playing on this machine
@@ -109,4 +123,12 @@ cached token.
 ```
 go test ./...
 SPOTIFY_TUI_DUMP=1 go test -run TestDump -v ./internal/ui   # print a frame with fake data
+SPOTIFY_TUI_LIVE=1 go test -run 'TestLive' -v ./...         # hit the real API and sound server
+```
+
+Releases are cut by pushing a tag. GoReleaser builds the binaries, publishes
+the GitHub release, and updates the formula in Sousf/homebrew-tap:
+
+```
+git tag v0.2.0 && git push --tags
 ```
