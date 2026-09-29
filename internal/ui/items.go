@@ -6,7 +6,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/mattn/go-runewidth"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/zmb3/spotify/v2"
 )
 
@@ -223,17 +223,19 @@ func deviceItem(d spotify.PlayerDevice) item {
 }
 
 // pad fits s into exactly w cells, truncating with an ellipsis or padding
-// with spaces, so columns line up regardless of wide characters.
+// with spaces. Width is measured ignoring ANSI escape sequences, so styled
+// strings can be padded without their colour codes counting as columns.
 func pad(s string, w int) string {
 	if w <= 0 {
 		return ""
 	}
 	s = strings.ReplaceAll(s, "\n", " ")
-	if runewidth.StringWidth(s) > w {
+	sw := ansi.StringWidth(s)
+	if sw > w {
 		if w <= 1 {
-			return runewidth.Truncate(s, w, "")
+			return ansi.Truncate(s, w, "")
 		}
-		return runewidth.Truncate(s, w, "…")
+		return ansi.Truncate(s, w, "…")
 	}
-	return runewidth.FillRight(s, w)
+	return s + strings.Repeat(" ", w-sw)
 }

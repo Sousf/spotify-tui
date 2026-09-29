@@ -1,17 +1,31 @@
 package ui
 
 import (
+	"io"
+	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 	"github.com/zmb3/spotify/v2"
 
 	"github.com/Sousf/spotify-tui/internal/viz"
 )
+
+// TestMain forces a colour profile so rendered frames contain the same
+// escape sequences a real terminal would see. Width checks then catch code
+// that measures styled strings incorrectly.
+func TestMain(m *testing.M) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	os.Exit(m.Run())
+}
 
 func fakeModel(w, h int) Model {
 	m := New(http.DefaultClient)
@@ -59,8 +73,8 @@ func checkFrame(t *testing.T, name, out string, w, h int) {
 		t.Errorf("%s: got %d lines, want %d", name, len(lines), h)
 	}
 	for i, l := range lines {
-		if lw := lipgloss.Width(l); lw > w {
-			t.Errorf("%s: line %d is %d wide, want <= %d: %q", name, i, lw, w, l)
+		if lw := lipgloss.Width(l); lw != w {
+			t.Errorf("%s: line %d is %d wide, want %d: %q", name, i, lw, w, l)
 		}
 	}
 }
@@ -187,6 +201,44 @@ func TestColumnsFillWidth(t *testing.T) {
 			if hdr := c.header(); hdr != "" && lipgloss.Width(hdr) != width {
 				t.Errorf("kind %d width %d: header is %d wide", p.kind, width, lipgloss.Width(hdr))
 			}
+		}
+	}
+}
+
+// TestStyledRowsKeepContent guards against width being measured with the
+// colour escape codes included, which used to truncate styled rows.
+func TestStyledRowsKeepContent(t *testing.T) {
+	m := fakeModel(120, 30)
+	m.focus = focusContent
+
+	m.showViz = true
+	n := m.vizBarCount()
+	m.vizLevels = make([]float64, n)
+	m.vizPeaks = make([]float64, n)
+	for i := range m.vizLevels {
+		m.vizLevels[i] = 1
+	}
+	m.viz = &viz.Capture{}
+	lines := strings.Split(m.View(), "\n")
+	// Rows 2..(list height) are bar rows; each must show every bar.
+	for i := 2; i < 2+m.listHeight()-2; i++ {
+		if got := strings.Count(lines[i], "█"); got != n {
+			t.Fatalf("viz row %d has %d blocks, want %d: %q", i, got, n, lines[i])
+		}
+	}
+	m.showViz = false
+	m.viz = nil
+
+	sp := &page{kind: pageSearch, title: "Search", query: "x"}
+	m.stack = append(m.stack, sp)
+	mm, _ := m.Update(searchDoneMsg{target: sp})
+	m = mm.(Model)
+	// The active tab is underlined, and lipgloss styles each word separately
+	// for underlines, so compare the plain text.
+	out := ansi.Strip(m.View())
+	for _, label := range []string{"1 Tracks", "2 Artists", "3 Albums", "4 Playlists"} {
+		if !strings.Contains(out, label) {
+			t.Errorf("search tab %q missing from frame", label)
 		}
 	}
 }
