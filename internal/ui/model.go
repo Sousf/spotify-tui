@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/zmb3/spotify/v2"
 
+	"github.com/Sousf/spotify-tui/internal/theme"
 	"github.com/Sousf/spotify-tui/internal/viz"
 )
 
@@ -60,6 +61,9 @@ type Model struct {
 	status      string
 	statusErr   bool
 	statusUntil time.Time
+
+	themeSeen    time.Time // mtime of the theme file last applied
+	themeChecked time.Time
 }
 
 // New builds the model from an authenticated HTTP client.
@@ -77,7 +81,28 @@ func New(hc *http.Client) Model {
 	}
 	m.library = page{kind: pagePlaylists, title: "Library", items: libraryEntries(nil)}
 	m.openLibrary(m.library.items[0])
+	m.loadTheme()
 	return m
+}
+
+// loadTheme applies the palette file if it changed since the last look.
+// Called on start and every couple of seconds from the tick, so switching
+// the desktop theme recolours a running session.
+func (m *Model) loadTheme() {
+	m.themeChecked = time.Now()
+	mt := theme.ModTime()
+	if mt.Equal(m.themeSeen) {
+		return
+	}
+	m.themeSeen = mt
+	pal, err := theme.Load()
+	if err != nil {
+		slog.Warn("theme", "err", err)
+		m.setStatus("theme.toml: "+err.Error(), true)
+	} else if !mt.IsZero() {
+		slog.Info("theme applied", "accent", pal.Accent)
+	}
+	applyPalette(pal)
 }
 
 func libraryEntries(playlists []item) []item {
@@ -340,6 +365,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case tickMsg:
+		if time.Since(m.themeChecked) >= 2*time.Second {
+			m.loadTheme()
+		}
 		if m.state != nil && m.state.Playing && m.state.Item != nil {
 			m.progress = time.Duration(m.state.Progress)*time.Millisecond + time.Since(m.stateAt)
 			if max := m.state.Item.TimeDuration(); m.progress > max {

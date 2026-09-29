@@ -402,15 +402,16 @@ func (m Model) renderHelp(w, h int) string {
 
 var vizPartial = []rune{' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
 
-// vizColor grades a bar from green at the bottom to red at the top.
+// vizColor grades a bar through the palette's accent, second accent and red
+// from bottom to top.
 func vizColor(frac float64) lipgloss.Style {
 	switch {
 	case frac > 0.85:
-		return lipgloss.NewStyle().Foreground(red)
+		return vizHigh
 	case frac > 0.6:
-		return lipgloss.NewStyle().Foreground(yellow)
+		return vizMid
 	default:
-		return lipgloss.NewStyle().Foreground(green)
+		return vizLow
 	}
 }
 

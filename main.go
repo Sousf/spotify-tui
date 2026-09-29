@@ -11,6 +11,7 @@
 //	spotify-tui logout     forget the cached token
 //	spotify-tui log        print the log file path
 //	spotify-tui version    print the version
+//	spotify-tui theme      print the palette in effect and where it came from
 package main
 
 import (
@@ -28,6 +29,7 @@ import (
 
 	"github.com/Sousf/spotify-tui/internal/auth"
 	"github.com/Sousf/spotify-tui/internal/logging"
+	"github.com/Sousf/spotify-tui/internal/theme"
 	"github.com/Sousf/spotify-tui/internal/ui"
 )
 
@@ -46,6 +48,9 @@ func run() error {
 	if len(os.Args) > 1 && (os.Args[1] == "version" || os.Args[1] == "--version") {
 		fmt.Println("spotify-tui", version)
 		return nil
+	}
+	if len(os.Args) > 1 && os.Args[1] == "theme" {
+		return showTheme()
 	}
 	if len(os.Args) > 1 && os.Args[1] == "log" {
 		p, err := logging.Path()
@@ -188,6 +193,26 @@ func status() error {
 	return nil
 }
 
+func showTheme() error {
+	p, err := theme.Path()
+	if err != nil {
+		return err
+	}
+	pal, err := theme.Load()
+	if err != nil {
+		return err
+	}
+	if theme.ModTime().IsZero() {
+		fmt.Printf("no %s, using built-in defaults\n", p)
+	} else {
+		fmt.Printf("from %s\n", p)
+	}
+	fmt.Printf("text %s  subtext %s  overlay %s\n", pal.Text, pal.Subtext, pal.Overlay)
+	fmt.Printf("surface0 %s  surface1 %s  surface2 %s\n", pal.Surface0, pal.Surface1, pal.Surface2)
+	fmt.Printf("accent %s  accent2 %s  red %s  yellow %s\n", pal.Accent, pal.Accent2, pal.Red, pal.Yellow)
+	return nil
+}
+
 func setup() error {
 	cfg, _ := auth.LoadConfig()
 	dir, _ := auth.Dir()
@@ -223,6 +248,10 @@ const usage = `spotify-tui: a terminal remote for Spotify
   spotify-tui logout   forget the cached login
   spotify-tui log      print the log file path
   spotify-tui version  print the version
+  spotify-tui theme    print the palette in effect
+
+Colours come from $XDG_CONFIG_HOME/spotify-tui/theme.toml when it exists;
+see the README for the keys.
 
 Every run writes a log of API calls and errors to
 $XDG_STATE_HOME/spotify-tui/spotify-tui.log (default ~/.local/state).

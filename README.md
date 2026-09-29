@@ -100,6 +100,26 @@ notice here:
 - Creating the app needs a Premium account, and each account gets one
   development-mode app.
 
+## Theming
+
+Colours come from `~/.config/spotify-tui/theme.toml`, flat `key = "#rrggbb"`
+lines. Any key left out keeps the built-in Spotify-green default, and the
+running TUI re-reads the file within two seconds of a change, so a desktop
+theme switcher can regenerate it and recolour an open session.
+
+```
+text     = "#dfe2f0"   # primary text
+subtext  = "#aaadba"
+overlay0 = "#696c78"   # dimmed text, headers, hints
+surface0 = "#1a1c27"   # cursor row
+surface1 = "#282a36"   # unfocused borders
+surface2 = "#393b47"   # progress track
+accent   = "#1464c4"   # focused border, playing track, progress
+accent2  = "#c41c14"   # visualiser mid band
+red      = "#cc7264"   # errors, visualiser top band
+yellow   = "#d8a850"   # notices
+```
+
 ## Troubleshooting
 
 Every run writes `~/.local/state/spotify-tui/spotify-tui.log` (truncated on
