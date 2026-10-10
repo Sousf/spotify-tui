@@ -78,13 +78,27 @@ track plays through it. Playback needs Premium.
 | `+` `-` | volume |
 | `s` `r` | shuffle / repeat |
 | `d` `u` | devices / queue |
-| `v` | audio visualiser (reads the PipeWire output monitor via `parec`) |
+| `v` | audio visualiser of what Spotify is playing (see below) |
 | `a` | add selected track to queue |
 | `f` `F` | save / unsave selected track |
 | `e` `b` | jump to the selected track's artist or album |
 | `R` | reload |
 | `?` | help |
 | `q` | quit |
+
+## Visualiser
+
+`v` shows a spectrum of the player's output. On PipeWire it records only the
+Spotify stream: it finds the playback node with `pw-dump` and reads it with
+`pw-record`, so a video in another window never shows up in the bars. It
+recognises the stream by a property containing `spotify` or `librespot`,
+which covers spotifyd, the official client and most third-party players. For
+another player, set `SPOTIFY_TUI_VIZ_SOURCE` to a comma-separated list of
+words to look for in the stream's application name, process binary or node
+name. The pane says "waiting for Spotify to play" until the stream exists.
+
+Without `pw-record` the visualiser falls back to `parec` on the default
+sink's monitor, which mixes every application.
 
 ## Limits of a development-mode app
 

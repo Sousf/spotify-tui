@@ -53,6 +53,8 @@ type Model struct {
 
 	// visualiser, running only while shown
 	viz       *viz.Capture
+	vizStatus string // from Capture.Status: why no audio is flowing
+	vizSource string // from Capture.Source: the stream being recorded
 	showViz   bool
 	vizErr    error
 	vizLevels []float64
@@ -391,6 +393,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viz = nil
 			return m, nil
 		}
+		m.vizStatus, m.vizSource = m.viz.Status(), m.viz.Source()
 		m.vizLevels, m.vizPeaks = m.viz.Bars(m.vizBarCount())
 		return m, vizTick()
 
@@ -531,6 +534,7 @@ func (m *Model) toggleViz() tea.Cmd {
 	m.showViz = true
 	m.showHelp = false
 	m.vizErr = nil
+	m.vizStatus, m.vizSource = "", ""
 	c, err := viz.Start()
 	if err != nil {
 		slog.Warn("visualiser start failed", "err", err)

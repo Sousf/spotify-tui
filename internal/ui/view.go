@@ -417,16 +417,23 @@ func vizColor(frac float64) lipgloss.Style {
 
 func (m Model) renderViz(w, h int) string {
 	inner := w - 2
-	rows := []string{titleStyle.Render(pad("Visualiser", inner-14)) + dimStyle.Render(pad("v to close", 14))}
+	title := "Visualiser"
+	if m.vizSource != "" {
+		title += " · " + m.vizSource
+	}
+	rows := []string{titleStyle.Render(pad(title, inner-14)) + dimStyle.Render(pad("v to close", 14))}
 	height := h - 2 - len(rows)
 	if height < 1 {
 		height = 1
 	}
-	if m.vizErr != nil {
+	switch {
+	case m.vizErr != nil:
 		rows = append(rows, errorStyle.Render(pad("  "+m.vizErr.Error(), inner)))
-	} else if m.viz == nil || len(m.vizLevels) == 0 {
+	case m.vizStatus != "":
+		rows = append(rows, dimStyle.Render(pad("  "+m.vizStatus, inner)))
+	case m.viz == nil || len(m.vizLevels) == 0:
 		rows = append(rows, dimStyle.Render(pad("  listening…", inner)))
-	} else {
+	default:
 		n := len(m.vizLevels)
 		// Each bar is one cell wide with a one-cell gap, centred in the pane.
 		used := n*2 - 1

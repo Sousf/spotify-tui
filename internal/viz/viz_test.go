@@ -80,7 +80,7 @@ func TestBarsSmoothAndDecay(t *testing.T) {
 	}
 }
 
-// TestLiveCapture starts parec against the real sound server. Gated because
+// TestLiveCapture records from the real sound server. Gated because
 // CI boxes have no PipeWire.
 func TestLiveCapture(t *testing.T) {
 	if os.Getenv("SPOTIFY_TUI_LIVE") == "" {
@@ -96,5 +96,6 @@ func TestLiveCapture(t *testing.T) {
 		t.Fatal(err)
 	}
 	levels, _ := c.Bars(16)
+	t.Logf("source %q status %q", c.Source(), c.Status())
 	t.Logf("levels after 400ms: %.2f", levels)
 }
