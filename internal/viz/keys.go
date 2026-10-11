@@ -1,6 +1,9 @@
 package viz
 
-import "math"
+import (
+	"math"
+	"slices"
+)
 
 // Piano key detection. Each of the 88 keys gets a Hann-windowed Goertzel
 // filter at its exact pitch, run over a window long enough to separate it
@@ -79,8 +82,8 @@ func detectKeys(mag []float64) []float64 {
 	n := len(mag)
 	// Noise floor: the median magnitude. Real notes are a few keys out of
 	// 88, so the median is noise or reverb, not signal.
-	sorted := append([]float64(nil), mag...)
-	sortFloats(sorted)
+	sorted := slices.Clone(mag)
+	slices.Sort(sorted)
 	floor := sorted[n/2]
 	peak := sorted[n-1]
 	if peak < 1e-4 {
@@ -147,15 +150,6 @@ func keyFor(f float64) int {
 		return -1
 	}
 	return k
-}
-
-func sortFloats(a []float64) {
-	// insertion sort: 88 values, called 30 times a second, no import needed
-	for i := 1; i < len(a); i++ {
-		for j := i; j > 0 && a[j-1] > a[j]; j-- {
-			a[j-1], a[j] = a[j], a[j-1]
-		}
-	}
 }
 
 // Keys returns the level of each of the 88 piano keys in [0,1], A0 first.

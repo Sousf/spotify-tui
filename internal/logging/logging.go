@@ -4,6 +4,7 @@
 package logging
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log/slog"
@@ -85,7 +86,7 @@ func (t Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if rerr != nil {
 		body = []byte(fmt.Sprintf("<unreadable: %v>", rerr))
 	}
-	resp.Body = io.NopCloser(strings.NewReader(string(body)))
+	resp.Body = io.NopCloser(bytes.NewReader(body))
 	snippet := strings.TrimSpace(string(body))
 	if len(snippet) > 300 {
 		snippet = snippet[:300] + "…"

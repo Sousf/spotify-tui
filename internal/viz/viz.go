@@ -297,10 +297,10 @@ func (c *Capture) Source() string {
 // peak markers for each bar.
 func (c *Capture) Bars(n int) (levels, peaks []float64) {
 	c.mu.Lock()
-	re := c.recent(window)
+	x := c.recent(window)
 	c.mu.Unlock()
 
-	raw := spectrum(re[:], n)
+	raw := spectrum(x, n)
 
 	if len(c.levels) != n {
 		c.levels = make([]float64, n)
@@ -346,16 +346,13 @@ func (c *Capture) Bars(n int) (levels, peaks []float64) {
 	return levels, peaks
 }
 
-// recent copies the last n samples, oldest first. The caller holds c.mu.
+// recent copies the last n samples (n <= ring), oldest first. The caller
+// holds c.mu.
 func (c *Capture) recent(n int) []float64 {
 	out := make([]float64, n)
-	start := c.pos - n
-	for start < 0 {
-		start += ring
-	}
-	for i := range out {
-		out[i] = c.samples[(start+i)%ring]
-	}
+	start := (c.pos - n + ring) % ring
+	k := copy(out, c.samples[start:])
+	copy(out[k:], c.samples[:])
 	return out
 }
 

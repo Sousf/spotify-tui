@@ -47,10 +47,6 @@ type (
 		items []item
 		err   error
 	}
-	userMsg struct {
-		user *spotify.PrivateUser
-		err  error
-	}
 	actionDoneMsg struct {
 		what string
 		info string // optional status text on success
@@ -95,15 +91,6 @@ func fetchPlayerState(c *api) tea.Cmd {
 		defer cancel()
 		st, err := c.PlayerState(ctx)
 		return playerStateMsg{state: st, err: friendlyErr(err)}
-	}
-}
-
-func fetchUser(c *api) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := apiCtx()
-		defer cancel()
-		u, err := c.CurrentUser(ctx)
-		return userMsg{user: u, err: friendlyErr(err)}
 	}
 }
 
