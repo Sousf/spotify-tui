@@ -110,7 +110,7 @@ as a drum fill, light nothing. Solo instruments and sparse arrangements track
 well; in a dense mix expect the bassline and the current chord, with vocals
 flickering between neighbouring keys. Low notes below about C2 need a longer
 window than the display latency allows and may spill onto a neighbour. The
-keyboard shows as many octaves as fit the pane, centred on middle C.
+keyboard shows as many octaves as fit the pane, centred on middle C, with wider keys on wider terminals.
 
 ## Limits of a development-mode app
 

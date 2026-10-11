@@ -495,52 +495,69 @@ func (m Model) renderViz(w, h int) string {
 	return m.paneStyleFor(focusContent).Width(inner).Height(h - 2).Render(strings.Join(rows, "\n"))
 }
 
-// Keyboard layout: each key is one column. An octave is a separator, then
-// C C# D D# E, a separator, then F F# G G# A A# B: 14 columns, with the
-// black keys standing in the boundary between their white neighbours. In
-// the lower rows those columns revert to plain separators.
+// Keyboard layout. White keys are keyWidth columns of bright block with a
+// one-column gap between them; black keys are narrower dark blocks sitting
+// over the gaps in the upper part, as on a real keyboard. Lit keys take the
+// accent colours. The keyboard keeps a fixed height and sits centred in
+// the pane rather than stretching to fill it.
 const (
-	octaveCols = 14
-	maxOctaves = 7 // C1 to B7; the keyboard's three outer keys are dropped
+	maxOctaves  = 7  // C1 to B7; the keyboard's three outer keys are dropped
+	keyboardTop = 12 // rows for the keys when the pane allows
 )
 
-// octaveCol describes column i of an octave: the semitone it shows (0 = C)
-// and whether it is a black key; -1 is a bare separator.
-var octaveCol = [octaveCols]struct {
-	semitone int
-	black    bool
-}{
-	{-1, false}, {0, false}, {1, true}, {2, false}, {3, true}, {4, false},
-	{-1, false}, {5, false}, {6, true}, {7, false}, {8, true}, {9, false}, {10, true}, {11, false},
+// whiteSemitones are the semitones of the white keys in an octave; the
+// black keys sit over the gap after whites 0, 1, 3, 4 and 5.
+var whiteSemitones = [7]int{0, 2, 4, 5, 7, 9, 11}
+
+// keyCell is one drawn column of a keyboard row.
+type keyCell struct {
+	text  string
+	style *lipgloss.Style // nil for the bare background
 }
 
 // renderKeys draws levels (88 entries, A0 first) as a piano across inner
-// columns and height rows, centred, with as many octaves as fit.
+// columns and height rows, with as many octaves as fit at the widest key
+// size that still shows most of the range.
 func renderKeys(levels []float64, inner, height int) []string {
-	octaves := (inner - 1) / octaveCols
+	// Pick a key width: the widest that fits at least five octaves, else
+	// the narrowest with whatever fits.
+	keyWidth, octaves := 0, 0
+	for _, w := range []int{4, 3, 2, 1} {
+		keyWidth = w
+		octaves = (inner + 1) / (7 * (w + 1))
+		if octaves >= 5 {
+			break
+		}
+	}
 	if octaves > maxOctaves {
 		octaves = maxOctaves
 	}
-	if octaves < 1 || height < 2 {
+	if octaves < 1 || height < 3 {
 		return []string{dimStyle.Render(pad("  pane too small for the keyboard", inner))}
 	}
 	startOct := 4 - octaves/2 // keep middle C in the middle
-	total := octaves*octaveCols + 1
-	lead := strings.Repeat(" ", (inner-total)/2)
+	pitch := keyWidth + 1     // columns from one white key to the next
+	total := octaves*7*pitch - 1
+	lead := (inner - total) / 2
 
-	// Row budget: labels and a baseline when there is room, blacks on the
-	// top three fifths of the keys.
-	labels := height >= 5
+	// Row budget: a label row when there is room, keys no taller than
+	// keyboardTop, black keys over the top three fifths, and the whole
+	// thing centred vertically.
+	labels := height >= 6
 	keyRows := height
 	if labels {
-		keyRows -= 2
+		keyRows--
+	}
+	if keyRows > keyboardTop {
+		keyRows = keyboardTop
 	}
 	blackRows := keyRows * 3 / 5
-	if blackRows < 1 {
-		blackRows = 1
+	blackWidth := 3
+	if keyWidth < 3 {
+		blackWidth = 1
 	}
 
-	level := func(semitone, oct int) float64 {
+	level := func(oct, semitone int) float64 {
 		k := 12*(oct+1) + semitone - 21 // MIDI number, then A0-based index
 		if k < 0 || k >= len(levels) {
 			return 0
@@ -548,67 +565,97 @@ func renderKeys(levels []float64, inner, height int) []string {
 		return levels[k]
 	}
 	glyph := func(v float64) string {
-		switch {
-		case v > 0.66:
+		if v > 0.5 {
 			return "█"
-		case v > 0.33:
-			return "▓"
-		default:
-			return "▒"
 		}
+		return "▓"
 	}
-	sep := dimStyle.Render("│")
-	whiteOff := dimStyle.Render("░")
 
-	rows := make([]string, 0, height)
-	for r := 0; r < keyRows; r++ {
-		upper := r < blackRows
-		var line strings.Builder
-		line.WriteString(lead)
+	// Paint one row into cells, then overlay the black keys if this row
+	// is in the upper part.
+	paint := func(upper bool) []keyCell {
+		cells := make([]keyCell, total)
+		for i := range cells {
+			cells[i] = keyCell{text: " "}
+		}
 		for o := 0; o < octaves; o++ {
-			for _, col := range octaveCol {
-				switch {
-				case col.semitone < 0:
-					line.WriteString(sep)
-				case col.black && !upper:
-					line.WriteString(sep)
-				case col.black:
-					if v := level(col.semitone, startOct+o); v > 0 {
-						line.WriteString(vizMid.Render(glyph(v)))
-					} else {
-						line.WriteByte(' ')
-					}
-				default:
-					if v := level(col.semitone, startOct+o); v > 0 {
-						line.WriteString(vizLow.Render(glyph(v)))
-					} else {
-						line.WriteString(whiteOff)
+			for wi, semi := range whiteSemitones {
+				x := (o*7 + wi) * pitch
+				cell := keyCell{text: "█", style: &keyWhite}
+				if v := level(startOct+o, semi); v > 0 {
+					cell = keyCell{text: glyph(v), style: &vizLow}
+				}
+				for c := 0; c < keyWidth; c++ {
+					cells[x+c] = cell
+				}
+			}
+		}
+		if !upper {
+			return cells
+		}
+		for o := 0; o < octaves; o++ {
+			for wi, semi := range whiteSemitones {
+				if wi == 2 || wi == 6 { // no black after E or B
+					continue
+				}
+				gap := (o*7+wi)*pitch + keyWidth // the gap column after this white
+				cell := keyCell{text: "█", style: &keyBlack}
+				if v := level(startOct+o, semi+1); v > 0 {
+					cell = keyCell{text: glyph(v), style: &vizMid}
+				}
+				for c := gap - blackWidth/2; c <= gap+blackWidth/2; c++ {
+					if c >= 0 && c < total {
+						cells[c] = cell
 					}
 				}
 			}
 		}
-		line.WriteString(sep)
-		rows = append(rows, pad(line.String(), inner))
+		return cells
+	}
+
+	render := func(cells []keyCell) string {
+		var line strings.Builder
+		line.WriteString(strings.Repeat(" ", lead))
+		// Runs of the same style are rendered together to keep the escape
+		// codes down.
+		for i := 0; i < len(cells); {
+			j := i
+			for j < len(cells) && cells[j].style == cells[i].style && cells[j].text == cells[i].text {
+				j++
+			}
+			run := strings.Repeat(cells[i].text, j-i)
+			if cells[i].style != nil {
+				run = cells[i].style.Render(run)
+			}
+			line.WriteString(run)
+			i = j
+		}
+		return pad(line.String(), inner)
+	}
+
+	upperRow := render(paint(true))
+	lowerRow := render(paint(false))
+	used := keyRows
+	if labels {
+		used++
+	}
+	rows := make([]string, 0, height)
+	for i := 0; i < (height-used)/2; i++ {
+		rows = append(rows, strings.Repeat(" ", inner))
+	}
+	for r := 0; r < keyRows; r++ {
+		if r < blackRows {
+			rows = append(rows, upperRow)
+		} else {
+			rows = append(rows, lowerRow)
+		}
 	}
 	if labels {
-		var base, names strings.Builder
-		base.WriteString(lead)
-		names.WriteString(lead)
+		var names strings.Builder
+		names.WriteString(strings.Repeat(" ", lead))
 		for o := 0; o < octaves; o++ {
-			for i, col := range octaveCol {
-				switch {
-				case i == 0 && o == 0:
-					base.WriteString("└")
-				case col.semitone < 0 || col.black:
-					base.WriteString("┴")
-				default:
-					base.WriteString("─")
-				}
-			}
-			names.WriteString(pad(fmt.Sprintf(" C%d", startOct+o), octaveCols))
+			names.WriteString(pad(fmt.Sprintf("C%d", startOct+o), 7*pitch))
 		}
-		base.WriteString("┘")
-		rows = append(rows, pad(dimStyle.Render(base.String()), inner))
 		rows = append(rows, pad(dimStyle.Render(names.String()), inner))
 	}
 	return rows

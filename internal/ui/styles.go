@@ -29,6 +29,8 @@ var (
 	helpKeyStyle     lipgloss.Style
 	// visualiser bands, bottom to top
 	vizLow, vizMid, vizHigh lipgloss.Style
+	// piano keys at rest
+	keyWhite, keyBlack lipgloss.Style
 )
 
 func init() {
@@ -63,4 +65,6 @@ func applyPalette(p theme.Palette) {
 	vizLow = accentStyle
 	vizMid = lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent2))
 	vizHigh = errorStyle
+	keyWhite = lipgloss.NewStyle().Foreground(lipgloss.Color(p.Subtext))
+	keyBlack = lipgloss.NewStyle().Foreground(lipgloss.Color(p.Surface2))
 }
