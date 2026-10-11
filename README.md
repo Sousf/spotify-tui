@@ -10,6 +10,8 @@ To look around before setting anything up, `spotify-tui demo` runs the
 interface on a made-up library with a built-in tune for the visualiser. It
 needs no account and makes no network requests.
 
+![Browsing a playlist, searching, and the visualiser's bars, piano keys and piano roll](demo.gif)
+
 ## Install
 
 ```
@@ -176,6 +178,7 @@ cached token.
 go test ./...
 SPOTIFY_TUI_DUMP=1 go test -run TestDump -v ./internal/ui   # print a frame with fake data
 SPOTIFY_TUI_LIVE=1 go test -run 'TestLive' -v ./...         # hit the real API and sound server
+vhs demo.tape                                                # re-record demo.gif from the demo mode
 ```
 
 Releases are cut by pushing a tag. GoReleaser builds the binaries, publishes
