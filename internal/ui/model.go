@@ -52,6 +52,7 @@ type Model struct {
 	search textinput.Model
 
 	// visualiser, running only while shown
+	startViz  func() (*viz.Capture, error)
 	viz       *viz.Capture
 	vizStatus string // from Capture.Status: why no audio is flowing
 	vizSource string // from Capture.Source: the stream being recorded
@@ -80,13 +81,21 @@ func New(hc *http.Client) Model {
 	ti.CharLimit = 200
 
 	m := Model{
-		client: client,
-		focus:  focusLibrary,
-		search: ti,
+		client:   client,
+		focus:    focusLibrary,
+		search:   ti,
+		startViz: viz.Start,
 	}
 	m.library = page{kind: pagePlaylists, title: "Library", items: libraryEntries(nil)}
 	m.openLibrary(m.library.items[0])
 	m.loadTheme()
+	return m
+}
+
+// WithVisualiser replaces the audio capture the visualiser starts, so the
+// demo can show it without a player or a recorder.
+func (m Model) WithVisualiser(start func() (*viz.Capture, error)) Model {
+	m.startViz = start
 	return m
 }
 
@@ -578,7 +587,7 @@ func (m *Model) cycleViz() tea.Cmd {
 	m.vizErr = nil
 	m.vizStatus, m.vizSource = "", ""
 	m.vizKeys, m.vizRoll, m.vizTicks = nil, nil, 0
-	c, err := viz.Start()
+	c, err := m.startViz()
 	if err != nil {
 		slog.Warn("visualiser start failed", "err", err)
 		m.vizErr = err

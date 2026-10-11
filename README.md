@@ -6,6 +6,10 @@ It drives the Spotify Web API, so it does not play audio itself. Open Spotify
 on your phone, desktop, or a speaker and this controls that device. Playback
 control needs Spotify Premium; browsing works on any account.
 
+To look around before setting anything up, `spotify-tui demo` runs the
+interface on a made-up library with a built-in tune for the visualiser. It
+needs no account and makes no network requests.
+
 ## Install
 
 ```

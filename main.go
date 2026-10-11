@@ -12,6 +12,7 @@
 //	spotify-tui log        print the log file path
 //	spotify-tui version    print the version
 //	spotify-tui theme      print the palette in effect and where it came from
+//	spotify-tui demo       run the interface on a made-up library, offline
 package main
 
 import (
@@ -28,9 +29,11 @@ import (
 	"github.com/zmb3/spotify/v2"
 
 	"github.com/Sousf/spotify-tui/internal/auth"
+	"github.com/Sousf/spotify-tui/internal/demo"
 	"github.com/Sousf/spotify-tui/internal/logging"
 	"github.com/Sousf/spotify-tui/internal/theme"
 	"github.com/Sousf/spotify-tui/internal/ui"
+	"github.com/Sousf/spotify-tui/internal/viz"
 )
 
 // version is stamped at build time with -X main.version. Builds that skip it,
@@ -75,6 +78,8 @@ func run() error {
 			return login()
 		case "status":
 			return status()
+		case "demo":
+			return demoUI()
 		case "logout":
 			if err := auth.Logout(); err != nil {
 				return err
@@ -113,6 +118,15 @@ func run() error {
 	if err != nil {
 		slog.Error("program", "err", err)
 	}
+	return err
+}
+
+// demoUI runs the interface against an in-memory library with a built-in
+// tune for the visualiser. It needs no client ID, token, network or player,
+// which makes it the way to try the keys or record the README GIF.
+func demoUI() error {
+	m := ui.New(demo.Client()).WithVisualiser(func() (*viz.Capture, error) { return viz.Synth(), nil })
+	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
 }
 
@@ -249,6 +263,7 @@ const usage = `spotify-tui: a terminal remote for Spotify
   spotify-tui log      print the log file path
   spotify-tui version  print the version
   spotify-tui theme    print the palette in effect
+  spotify-tui demo     try it on a made-up library, no account needed
 
 Colours come from $XDG_CONFIG_HOME/spotify-tui/theme.toml when it exists;
 see the README for the keys.
