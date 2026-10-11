@@ -139,8 +139,10 @@ func (m Model) Init() tea.Cmd {
 		tick(),
 		poll(pollEvery),
 	}
-	if top := m.top(); top != nil {
-		cmds = append(cmds, m.initialLoad(top))
+	// New opened the first page, which marked it loading, but a constructor
+	// has nowhere to return the fetch; issue it here.
+	if top := m.top(); top != nil && top.load != nil && len(top.items) == 0 {
+		cmds = append(cmds, top.load(0))
 	}
 	return tea.Batch(cmds...)
 }

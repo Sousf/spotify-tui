@@ -5,8 +5,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/zmb3/spotify/v2"
+
+	"github.com/Sousf/spotify-tui/internal/demo"
 )
 
 func TestPlaylistLoaderParsesTracks(t *testing.T) {
@@ -92,5 +96,40 @@ func TestPlayFallsBackToDevice(t *testing.T) {
 	}
 	if msg.info != "Playing on Mac" {
 		t.Errorf("info = %q", msg.info)
+	}
+}
+
+// TestInitLoadsFirstPage guards the start-up fetch of Liked Songs: New marks
+// the page loading, so Init has to send the request itself.
+func TestInitLoadsFirstPage(t *testing.T) {
+	m := New(demo.Client())
+	got := make(chan tea.Msg, 16)
+	var run func(cmd tea.Cmd)
+	run = func(cmd tea.Cmd) {
+		if cmd == nil {
+			return
+		}
+		go func() {
+			msg := cmd()
+			if batch, ok := msg.(tea.BatchMsg); ok {
+				for _, c := range batch {
+					run(c)
+				}
+				return
+			}
+			got <- msg
+		}()
+	}
+	run(m.Init())
+	deadline := time.After(2 * time.Second) // the ticks never answer in time
+	for {
+		select {
+		case msg := <-got:
+			if pl, ok := msg.(pageLoadedMsg); ok && pl.target == m.top() && len(pl.items) > 0 {
+				return
+			}
+		case <-deadline:
+			t.Fatal("Init never loaded the first page")
+		}
 	}
 }
