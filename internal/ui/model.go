@@ -55,7 +55,8 @@ type Model struct {
 	viz       *viz.Capture
 	vizStatus string // from Capture.Status: why no audio is flowing
 	vizSource string // from Capture.Source: the stream being recorded
-	showViz   bool
+	vizMode   vizMode
+	vizKeys   []float64 // per piano key, from Capture.Keys
 	vizErr    error
 	vizLevels []float64
 	vizPeaks  []float64
@@ -385,7 +386,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, fetchPlayerState(m.client)
 
 	case vizTickMsg:
-		if !m.showViz || m.viz == nil {
+		if m.vizMode == vizOff || m.viz == nil {
 			return m, nil
 		}
 		if err := m.viz.Err(); err != nil {
@@ -394,7 +395,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.vizStatus, m.vizSource = m.viz.Status(), m.viz.Source()
-		m.vizLevels, m.vizPeaks = m.viz.Bars(m.vizBarCount())
+		if m.vizMode == vizKeys {
+			m.vizKeys = m.viz.Keys()
+		} else {
+			m.vizLevels, m.vizPeaks = m.viz.Bars(m.vizBarCount())
+		}
 		return m, vizTick()
 
 	case playerStateMsg:
@@ -509,6 +514,15 @@ type refreshMsg struct{}
 
 type vizTickMsg struct{}
 
+// vizMode is what the content pane shows while the visualiser is up.
+type vizMode int
+
+const (
+	vizOff  vizMode = iota
+	vizBars         // spectrum bars
+	vizKeys         // piano keyboard
+)
+
 func vizTick() tea.Cmd {
 	return tea.Tick(vizFrame, func(time.Time) tea.Msg { return vizTickMsg{} })
 }
@@ -523,18 +537,25 @@ func (m Model) vizBarCount() int {
 	return n
 }
 
-func (m *Model) toggleViz() tea.Cmd {
-	if m.showViz {
-		m.showViz = false
+// cycleViz steps v through bars, keys and off. The capture runs for both
+// views and stops only when the visualiser closes.
+func (m *Model) cycleViz() tea.Cmd {
+	switch m.vizMode {
+	case vizBars:
+		m.vizMode = vizKeys
+		return nil
+	case vizKeys:
+		m.vizMode = vizOff
 		m.viz.Stop()
 		m.viz = nil
 		slog.Info("visualiser stopped")
 		return nil
 	}
-	m.showViz = true
+	m.vizMode = vizBars
 	m.showHelp = false
 	m.vizErr = nil
 	m.vizStatus, m.vizSource = "", ""
+	m.vizKeys = nil
 	c, err := viz.Start()
 	if err != nil {
 		slog.Warn("visualiser start failed", "err", err)
@@ -584,7 +605,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.showHelp = true
 		return m, nil
 	case "v":
-		return m, m.toggleViz()
+		return m, m.cycleViz()
 	case "/":
 		return m, m.startSearch()
 	case " ":

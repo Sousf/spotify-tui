@@ -90,7 +90,7 @@ func TestViewFitsTerminal(t *testing.T) {
 		checkFrame(t, "help", m.View(), w, h)
 		m.showHelp = false
 
-		m.showViz = true
+		m.vizMode = vizBars
 		m.vizErr = nil
 		n := m.vizBarCount()
 		m.vizLevels = make([]float64, n)
@@ -101,8 +101,17 @@ func TestViewFitsTerminal(t *testing.T) {
 		}
 		m.viz = &viz.Capture{}
 		checkFrame(t, "viz", m.View(), w, h)
+		m.vizMode = vizKeys
+		m.vizKeys = make([]float64, viz.Keys)
+		for k := range m.vizKeys {
+			m.vizKeys[k] = float64(k%4) / 3
+		}
+		checkFrame(t, "keys", m.View(), w, h)
+		m.vizStatus = "waiting for Spotify to play…"
+		checkFrame(t, "keys waiting", m.View(), w, h)
+		m.vizStatus = ""
 		m.viz = nil
-		m.showViz = false
+		m.vizMode = vizOff
 
 		mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
 		m = mm.(Model)
@@ -211,7 +220,7 @@ func TestStyledRowsKeepContent(t *testing.T) {
 	m := fakeModel(120, 30)
 	m.focus = focusContent
 
-	m.showViz = true
+	m.vizMode = vizBars
 	n := m.vizBarCount()
 	m.vizLevels = make([]float64, n)
 	m.vizPeaks = make([]float64, n)
@@ -226,7 +235,7 @@ func TestStyledRowsKeepContent(t *testing.T) {
 			t.Fatalf("viz row %d has %d blocks, want %d: %q", i, got, n, lines[i])
 		}
 	}
-	m.showViz = false
+	m.vizMode = vizOff
 	m.viz = nil
 
 	sp := &page{kind: pageSearch, title: "Search", query: "x"}

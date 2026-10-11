@@ -22,7 +22,8 @@ import (
 
 const (
 	sampleRate = 44100
-	window     = 2048 // samples per FFT, ~46 ms at 44.1 kHz
+	window     = 2048  // samples per FFT for the bars, ~46 ms at 44.1 kHz
+	ring       = 16384 // samples kept; the lowest keys need ~370 ms to resolve
 	minHz      = 40.0
 	maxHz      = 14000.0
 
@@ -33,7 +34,7 @@ const (
 // Capture runs the recorder and keeps the most recent window of samples.
 type Capture struct {
 	mu      sync.Mutex
-	samples [window]float64 // ring buffer of the last window samples
+	samples [ring]float64 // ring buffer of the most recent samples
 	pos     int
 	cancel  context.CancelFunc
 	err     error  // fatal: capture has given up
@@ -45,6 +46,10 @@ type Capture struct {
 	levels []float64
 	peaks  []float64
 	gain   float64 // running maximum for automatic level scaling
+
+	// the same for the piano keys view
+	keyLevels []float64
+	keyGain   float64
 }
 
 // Start begins capturing in the background. It returns an error only if no
@@ -213,7 +218,7 @@ func (c *Capture) pump(r io.Reader) {
 			for i := 0; i+1 < n; i += 2 {
 				v := int16(binary.LittleEndian.Uint16(buf[i:]))
 				c.samples[c.pos] = float64(v) / 32768
-				c.pos = (c.pos + 1) % window
+				c.pos = (c.pos + 1) % ring
 			}
 			c.mu.Unlock()
 		}
@@ -227,7 +232,7 @@ func (c *Capture) pump(r io.Reader) {
 // the last frame when the stream stops.
 func (c *Capture) clear() {
 	c.mu.Lock()
-	c.samples = [window]float64{}
+	c.samples = [ring]float64{}
 	c.mu.Unlock()
 }
 
@@ -292,10 +297,7 @@ func (c *Capture) Source() string {
 // peak markers for each bar.
 func (c *Capture) Bars(n int) (levels, peaks []float64) {
 	c.mu.Lock()
-	var re [window]float64
-	for i := 0; i < window; i++ {
-		re[i] = c.samples[(c.pos+i)%window]
-	}
+	re := c.recent(window)
 	c.mu.Unlock()
 
 	raw := spectrum(re[:], n)
@@ -342,6 +344,19 @@ func (c *Capture) Bars(n int) (levels, peaks []float64) {
 	levels = append([]float64(nil), c.levels...)
 	peaks = append([]float64(nil), c.peaks...)
 	return levels, peaks
+}
+
+// recent copies the last n samples, oldest first. The caller holds c.mu.
+func (c *Capture) recent(n int) []float64 {
+	out := make([]float64, n)
+	start := c.pos - n
+	for start < 0 {
+		start += ring
+	}
+	for i := range out {
+		out[i] = c.samples[(start+i)%ring]
+	}
+	return out
 }
 
 // spectrum computes n log-spaced band magnitudes from a window of samples.

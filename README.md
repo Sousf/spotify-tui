@@ -78,7 +78,7 @@ track plays through it. Playback needs Premium.
 | `+` `-` | volume |
 | `s` `r` | shuffle / repeat |
 | `d` `u` | devices / queue |
-| `v` | audio visualiser of what Spotify is playing (see below) |
+| `v` | visualiser of what Spotify is playing: bars, then piano keys, then off |
 | `a` | add selected track to queue |
 | `f` `F` | save / unsave selected track |
 | `e` `b` | jump to the selected track's artist or album |
@@ -88,7 +88,9 @@ track plays through it. Playback needs Premium.
 
 ## Visualiser
 
-`v` shows a spectrum of the player's output. On PipeWire it records only the
+`v` shows a spectrum of the player's output; a second press switches to a
+piano keyboard lighting the notes it hears, and a third closes it. On
+PipeWire the capture records only the
 Spotify stream: it finds the playback node with `pw-dump` and reads it with
 `pw-record`, so a video in another window never shows up in the bars. It
 recognises the stream by a property containing `spotify` or `librespot`,
@@ -99,6 +101,16 @@ name. The pane says "waiting for Spotify to play" until the stream exists.
 
 Without `pw-record` the visualiser falls back to `parec` on the default
 sink's monitor, which mixes every application.
+
+The keyboard view is a pitch tracker for the whole mix, not a transcription.
+Each key has its own filter at the note's frequency, the strongest peaks are
+kept, and the harmonics those notes would produce are discounted so a bass
+note does not light the octaves above it. Frames without clear pitches, such
+as a drum fill, light nothing. Solo instruments and sparse arrangements track
+well; in a dense mix expect the bassline and the current chord, with vocals
+flickering between neighbouring keys. Low notes below about C2 need a longer
+window than the display latency allows and may spill onto a neighbour. The
+keyboard shows as many octaves as fit the pane, centred on middle C.
 
 ## Limits of a development-mode app
 

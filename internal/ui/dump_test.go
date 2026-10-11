@@ -21,7 +21,7 @@ func TestDump(t *testing.T) {
 	m.showHelp = true
 	fmt.Println(m.View())
 	m.showHelp = false
-	m.showViz = true
+	m.vizMode = vizBars
 	n := m.vizBarCount()
 	m.vizLevels = make([]float64, n)
 	m.vizPeaks = make([]float64, n)
@@ -30,5 +30,13 @@ func TestDump(t *testing.T) {
 		m.vizPeaks[i] = m.vizLevels[i] + 0.15
 	}
 	m.viz = &viz.Capture{}
+	fmt.Println(m.View())
+	m.vizMode = vizKeys
+	m.vizSource = "spotifyd"
+	m.vizKeys = make([]float64, viz.Keys)
+	for _, k := range []int{27, 39, 43, 46, 51, 60} { // C3 and a C major with extras
+		m.vizKeys[k] = 1
+	}
+	m.vizKeys[40], m.vizKeys[49] = 0.5, 0.25 // C#4 and A#4 fading
 	fmt.Println(m.View())
 }
