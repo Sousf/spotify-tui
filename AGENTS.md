@@ -34,3 +34,9 @@ by default and need a logged-in account or a human; do not enable them in CI.
   branch ruleset requires as a status check. Renaming it blocks merges.
 - Builds are `CGO_ENABLED=0`; do not add cgo dependencies (the visualiser
   shells out to `parec` instead of linking libpulse for this reason).
+
+## Learned by MARSHAL
+
+Facts recorded by MARSHAL from its own runs, reviewed in the pull requests that added them.
+
+- `staticcheck@latest` cannot analyse this module: under the Go 1.27 toolchain that `go.mod` requires, it fails with "export data version 5 is greater than maximum supported version 4". `go run golang.org/x/tools/cmd/deadcode@latest -test ./...` does work.

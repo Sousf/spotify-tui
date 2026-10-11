@@ -30,6 +30,24 @@ func TestFFTMatchesDFT(t *testing.T) {
 	}
 }
 
+func TestRecentIsOldestFirstAcrossTheWrap(t *testing.T) {
+	for _, pos := range []int{0, 5, ring - 1} {
+		c := &Capture{pos: pos}
+		for i := range c.samples {
+			// The value is the sample's age: pos-1 is the newest at 1.
+			c.samples[i] = float64((pos-i+ring-1)%ring + 1)
+		}
+		for _, n := range []int{1, 10, ring} {
+			got := c.recent(n)
+			for i, v := range got {
+				if want := float64(n - i); v != want {
+					t.Fatalf("pos %d, n %d: out[%d] = %v, want %v", pos, n, i, v, want)
+				}
+			}
+		}
+	}
+}
+
 func TestSpectrumPutsToneInRightBand(t *testing.T) {
 	const bars = 32
 	for _, hz := range []float64{100, 1000, 8000} {

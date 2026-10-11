@@ -47,7 +47,6 @@ type Model struct {
 	state    *spotify.PlayerState
 	stateAt  time.Time
 	progress time.Duration
-	country  string
 
 	search textinput.Model
 
@@ -133,7 +132,6 @@ func libraryEntries(playlists []item) []item {
 
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{
-		fetchUser(m.client),
 		fetchPlaylists(m.client),
 		fetchPlayerState(m.client),
 		tick(),
@@ -438,12 +436,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.stateAt = time.Now()
 		if msg.state != nil {
 			m.progress = time.Duration(msg.state.Progress) * time.Millisecond
-		}
-		return m, nil
-
-	case userMsg:
-		if msg.err == nil && msg.user != nil {
-			m.country = msg.user.Country
 		}
 		return m, nil
 

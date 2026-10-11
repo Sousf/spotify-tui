@@ -73,7 +73,6 @@ type playlistSummary struct {
 
 type playlistSummaryPage struct {
 	Items []playlistSummary `json:"items"`
-	Total int               `json:"total"`
 	Next  string            `json:"next"`
 }
 
@@ -93,21 +92,19 @@ func (a *api) myPlaylists(ctx context.Context, limit, offset int) (*playlistSumm
 // decoded; episodes and unavailable items come back with an empty ID.
 type playlistItemsPage struct {
 	Items []struct {
-		IsLocal bool `json:"is_local"`
-		Item    struct {
+		Item struct {
 			Type string `json:"type"`
 			spotify.FullTrack
 		} `json:"item"`
 	} `json:"items"`
-	Total int    `json:"total"`
-	Next  string `json:"next"`
+	Total int `json:"total"`
 }
 
 func (a *api) playlistItems(ctx context.Context, id spotify.ID, limit, offset int) ([]item, int, error) {
 	q := url.Values{
 		"limit":  {fmt.Sprint(limit)},
 		"offset": {fmt.Sprint(offset)},
-		"fields": {"total,next,items(is_local,item(type,id,uri,name,duration_ms,artists(id,name),album(id,name)))"},
+		"fields": {"total,items(item(type,id,uri,name,duration_ms,artists(id,name),album(id,name)))"},
 	}
 	var pg playlistItemsPage
 	if err := a.getJSON(ctx, "playlists/"+string(id)+"/items", q, &pg); err != nil {

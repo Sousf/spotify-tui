@@ -457,11 +457,11 @@ func (m Model) renderViz(w, h int) string {
 			level := m.vizLevels[b]
 			peak := m.vizPeaks[b]
 			eighths := int(level*float64(height)*8 + 0.5)
+			full := eighths / 8
 			peakRow := height - 1 - int(peak*float64(height-1)+0.5)
 			col := make([]string, height)
 			for r := 0; r < height; r++ {
 				fromBottom := height - 1 - r // rows counted from the floor
-				full := eighths / 8
 				frac := float64(fromBottom+1) / float64(height)
 				var ch rune
 				switch {

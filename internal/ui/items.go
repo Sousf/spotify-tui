@@ -229,7 +229,7 @@ func pad(s string, w int) string {
 	if w <= 0 {
 		return ""
 	}
-	s = strings.Map(plainRune, strings.ReplaceAll(s, "\n", " "))
+	s = strings.Map(plainRune, s)
 	sw := ansi.StringWidth(s)
 	if sw > w {
 		tail := "…"
@@ -250,8 +250,11 @@ func pad(s string, w int) string {
 // in xterm, VTE and tmux), and a row that comes out wider than the cells
 // measured for it wraps and leaves stale lines on screen. Without the glue,
 // each emoji is a single code point every terminal measures the same.
+// Newlines become spaces so a row stays on one line.
 func plainRune(r rune) rune {
 	switch {
+	case r == '\n':
+		return ' '
 	case r == 0xFE0E, r == 0xFE0F, r == 0x200D:
 		return -1
 	case r >= 0x1F3FB && r <= 0x1F3FF:
