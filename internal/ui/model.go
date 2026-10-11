@@ -56,7 +56,9 @@ type Model struct {
 	vizStatus string // from Capture.Status: why no audio is flowing
 	vizSource string // from Capture.Source: the stream being recorded
 	vizMode   vizMode
-	vizKeys   []float64 // per piano key, from Capture.Keys
+	vizKeys   []float64   // per piano key, from Capture.Keys
+	vizRoll   [][]float64 // key snapshots for the roll, oldest first
+	vizTicks  int         // frames since the visualiser started, for the roll cadence
 	vizErr    error
 	vizLevels []float64
 	vizPeaks  []float64
@@ -395,10 +397,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.vizStatus, m.vizSource = m.viz.Status(), m.viz.Source()
-		if m.vizMode == vizKeys {
-			m.vizKeys = m.viz.Keys()
-		} else {
+		m.vizTicks++
+		switch m.vizMode {
+		case vizBars:
 			m.vizLevels, m.vizPeaks = m.viz.Bars(m.vizBarCount())
+		case vizKeys:
+			m.vizKeys = m.viz.Keys()
+		case vizRoll:
+			m.vizKeys = m.viz.Keys()
+			if m.vizTicks%rollEvery == 0 {
+				m.vizRoll = append(m.vizRoll, m.vizKeys)
+				if len(m.vizRoll) > rollHistory {
+					m.vizRoll = m.vizRoll[len(m.vizRoll)-rollHistory:]
+				}
+			}
 		}
 		return m, vizTick()
 
@@ -521,6 +533,12 @@ const (
 	vizOff  vizMode = iota
 	vizBars         // spectrum bars
 	vizKeys         // piano keyboard
+	vizRoll         // keyboard with a rising trail of what was played
+)
+
+const (
+	rollEvery   = 3   // frames per roll row, ~100 ms at 30 fps
+	rollHistory = 300 // rows kept, ~30 s; the pane shows what fits
 )
 
 func vizTick() tea.Cmd {
@@ -537,14 +555,18 @@ func (m Model) vizBarCount() int {
 	return n
 }
 
-// cycleViz steps v through bars, keys and off. The capture runs for both
-// views and stops only when the visualiser closes.
+// cycleViz steps v through bars, keys, roll and off. The capture runs for
+// every view and stops only when the visualiser closes.
 func (m *Model) cycleViz() tea.Cmd {
 	switch m.vizMode {
 	case vizBars:
 		m.vizMode = vizKeys
 		return nil
 	case vizKeys:
+		m.vizMode = vizRoll
+		m.vizRoll = nil
+		return nil
+	case vizRoll:
 		m.vizMode = vizOff
 		m.viz.Stop()
 		m.viz = nil
@@ -555,7 +577,7 @@ func (m *Model) cycleViz() tea.Cmd {
 	m.showHelp = false
 	m.vizErr = nil
 	m.vizStatus, m.vizSource = "", ""
-	m.vizKeys = nil
+	m.vizKeys, m.vizRoll, m.vizTicks = nil, nil, 0
 	c, err := viz.Start()
 	if err != nil {
 		slog.Warn("visualiser start failed", "err", err)

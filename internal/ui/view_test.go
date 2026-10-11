@@ -107,6 +107,15 @@ func TestViewFitsTerminal(t *testing.T) {
 			m.vizKeys[k] = float64(k%4) / 3
 		}
 		checkFrame(t, "keys", m.View(), w, h)
+		m.vizMode = vizRoll
+		checkFrame(t, "roll empty", m.View(), w, h)
+		for i := 0; i < 40; i++ {
+			snap := make([]float64, viz.Keys)
+			snap[(i*5)%viz.Keys] = 1
+			snap[(i*7+3)%viz.Keys] = 0.4
+			m.vizRoll = append(m.vizRoll, snap)
+		}
+		checkFrame(t, "roll", m.View(), w, h)
 		m.vizStatus = "waiting for Spotify to play…"
 		checkFrame(t, "keys waiting", m.View(), w, h)
 		m.vizStatus = ""

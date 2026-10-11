@@ -39,4 +39,13 @@ func TestDump(t *testing.T) {
 	}
 	m.vizKeys[40], m.vizKeys[49] = 0.5, 0.25 // C#4 and A#4 fading
 	fmt.Println(m.View())
+	m.vizMode = vizRoll
+	for i := 0; i < 30; i++ { // a rising scale with a held bass note
+		snap := make([]float64, viz.Keys)
+		snap[27] = 1
+		snap[39+i%12] = 1
+		snap[(39+i%12)-1] = 0.3
+		m.vizRoll = append(m.vizRoll, snap)
+	}
+	fmt.Println(m.View())
 }

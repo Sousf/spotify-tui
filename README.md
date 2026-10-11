@@ -78,7 +78,7 @@ track plays through it. Playback needs Premium.
 | `+` `-` | volume |
 | `s` `r` | shuffle / repeat |
 | `d` `u` | devices / queue |
-| `v` | visualiser of what Spotify is playing: bars, then piano keys, then off |
+| `v` | visualiser of what Spotify is playing: bars, piano keys, piano roll, off |
 | `a` | add selected track to queue |
 | `f` `F` | save / unsave selected track |
 | `e` `b` | jump to the selected track's artist or album |
@@ -89,7 +89,9 @@ track plays through it. Playback needs Premium.
 ## Visualiser
 
 `v` shows a spectrum of the player's output; a second press switches to a
-piano keyboard lighting the notes it hears, and a third closes it. On
+piano keyboard lighting the notes it hears, a third adds a roll above the
+keys where each note leaves a trail that rises and fades over the last few
+seconds, and a fourth closes it. On
 PipeWire the capture records only the
 Spotify stream: it finds the playback node with `pw-dump` and reads it with
 `pw-record`, so a video in another window never shows up in the bars. It
