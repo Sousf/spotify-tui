@@ -1,17 +1,32 @@
 package ui
 
 import (
+	"io"
+	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/mattn/go-runewidth"
+	"github.com/muesli/termenv"
 	"github.com/zmb3/spotify/v2"
 
 	"github.com/Sousf/spotify-tui/internal/viz"
 )
+
+// TestMain forces a colour profile so rendered frames contain the same
+// escape sequences a real terminal would see. Width checks then catch code
+// that measures styled strings incorrectly.
+func TestMain(m *testing.M) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	os.Exit(m.Run())
+}
 
 func fakeModel(w, h int) Model {
 	m := New(http.DefaultClient)
@@ -59,8 +74,8 @@ func checkFrame(t *testing.T, name, out string, w, h int) {
 		t.Errorf("%s: got %d lines, want %d", name, len(lines), h)
 	}
 	for i, l := range lines {
-		if lw := lipgloss.Width(l); lw > w {
-			t.Errorf("%s: line %d is %d wide, want <= %d: %q", name, i, lw, w, l)
+		if lw := lipgloss.Width(l); lw != w {
+			t.Errorf("%s: line %d is %d wide, want %d: %q", name, i, lw, w, l)
 		}
 	}
 }
@@ -76,7 +91,7 @@ func TestViewFitsTerminal(t *testing.T) {
 		checkFrame(t, "help", m.View(), w, h)
 		m.showHelp = false
 
-		m.showViz = true
+		m.vizMode = vizBars
 		m.vizErr = nil
 		n := m.vizBarCount()
 		m.vizLevels = make([]float64, n)
@@ -87,8 +102,26 @@ func TestViewFitsTerminal(t *testing.T) {
 		}
 		m.viz = &viz.Capture{}
 		checkFrame(t, "viz", m.View(), w, h)
+		m.vizMode = vizKeys
+		m.vizKeys = make([]float64, viz.Keys)
+		for k := range m.vizKeys {
+			m.vizKeys[k] = float64(k%4) / 3
+		}
+		checkFrame(t, "keys", m.View(), w, h)
+		m.vizMode = vizRoll
+		checkFrame(t, "roll empty", m.View(), w, h)
+		for i := 0; i < 40; i++ {
+			snap := make([]float64, viz.Keys)
+			snap[(i*5)%viz.Keys] = 1
+			snap[(i*7+3)%viz.Keys] = 0.4
+			m.vizRoll = append(m.vizRoll, snap)
+		}
+		checkFrame(t, "roll", m.View(), w, h)
+		m.vizStatus = "waiting for Spotify to play…"
+		checkFrame(t, "keys waiting", m.View(), w, h)
+		m.vizStatus = ""
 		m.viz = nil
-		m.showViz = false
+		m.vizMode = vizOff
 
 		mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
 		m = mm.(Model)
@@ -186,6 +219,63 @@ func TestColumnsFillWidth(t *testing.T) {
 			}
 			if hdr := c.header(); hdr != "" && lipgloss.Width(hdr) != width {
 				t.Errorf("kind %d width %d: header is %d wide", p.kind, width, lipgloss.Width(hdr))
+			}
+		}
+	}
+}
+
+// TestStyledRowsKeepContent guards against width being measured with the
+// colour escape codes included, which used to truncate styled rows.
+func TestStyledRowsKeepContent(t *testing.T) {
+	m := fakeModel(120, 30)
+	m.focus = focusContent
+
+	m.vizMode = vizBars
+	n := m.vizBarCount()
+	m.vizLevels = make([]float64, n)
+	m.vizPeaks = make([]float64, n)
+	for i := range m.vizLevels {
+		m.vizLevels[i] = 1
+	}
+	m.viz = &viz.Capture{}
+	lines := strings.Split(m.View(), "\n")
+	// Rows 2..(list height) are bar rows; each must show every bar.
+	for i := 2; i < 2+m.listHeight()-2; i++ {
+		if got := strings.Count(lines[i], "█"); got != n {
+			t.Fatalf("viz row %d has %d blocks, want %d: %q", i, got, n, lines[i])
+		}
+	}
+	m.vizMode = vizOff
+	m.viz = nil
+
+	sp := &page{kind: pageSearch, title: "Search", query: "x"}
+	m.stack = append(m.stack, sp)
+	mm, _ := m.Update(searchDoneMsg{target: sp})
+	m = mm.(Model)
+	// The active tab is underlined, and lipgloss styles each word separately
+	// for underlines, so compare the plain text.
+	out := ansi.Strip(m.View())
+	for _, label := range []string{"1 Tracks", "2 Artists", "3 Albums", "4 Playlists"} {
+		if !strings.Contains(out, label) {
+			t.Errorf("search tab %q missing from frame", label)
+		}
+	}
+}
+
+// TestPadEmojiWidth checks that emoji glued with joiners and selectors come
+// out as wide counted per code point, the way xterm, VTE and tmux draw them,
+// as they are counted per grapheme. When the two disagreed, rows wrapped and
+// left doubled lines on screen.
+func TestPadEmojiWidth(t *testing.T) {
+	for _, s := range []string{"❤️‍🔥 mix", "❤️ songs", "👍🏽 ok", "🔥🌻 summer", "⏳ later", "Road trip 日本語"} {
+		for _, w := range []int{4, 9, 20} {
+			out := pad(s, w)
+			perRune := 0
+			for _, r := range out {
+				perRune += runewidth.RuneWidth(r)
+			}
+			if got := ansi.StringWidth(out); got != w || perRune != w {
+				t.Errorf("pad(%q, %d) = %q: %d cells by grapheme, %d by code point", s, w, out, got, perRune)
 			}
 		}
 	}

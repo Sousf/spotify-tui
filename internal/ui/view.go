@@ -28,7 +28,7 @@ func (m Model) View() string {
 	} else {
 		left := m.renderLibrary(sidebarWidth, paneH)
 		var right string
-		if m.showViz {
+		if m.vizMode != vizOff {
 			right = m.renderViz(contentW, paneH)
 		} else {
 			right = m.renderContent(contentW, paneH)
@@ -349,7 +349,7 @@ func (m Model) renderHelp(w, h int) string {
 			{"r", "cycle repeat"},
 			{"d", "devices"},
 			{"u", "queue"},
-			{"v", "toggle visualiser"},
+			{"v", "visualiser: bars, keys, roll, off"},
 		}},
 		{"Selected track", []row{
 			{"a", "add to queue"},
@@ -402,30 +402,48 @@ func (m Model) renderHelp(w, h int) string {
 
 var vizPartial = []rune{' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
 
-// vizColor grades a bar from green at the bottom to red at the top.
+// vizColor grades a bar through the palette's accent, second accent and red
+// from bottom to top.
 func vizColor(frac float64) lipgloss.Style {
 	switch {
 	case frac > 0.85:
-		return lipgloss.NewStyle().Foreground(red)
+		return vizHigh
 	case frac > 0.6:
-		return lipgloss.NewStyle().Foreground(yellow)
+		return vizMid
 	default:
-		return lipgloss.NewStyle().Foreground(green)
+		return vizLow
 	}
 }
 
 func (m Model) renderViz(w, h int) string {
 	inner := w - 2
-	rows := []string{titleStyle.Render(pad("Visualiser", inner-14)) + dimStyle.Render(pad("v to close", 14))}
+	title, hint := "Visualiser", "v for keys"
+	switch m.vizMode {
+	case vizKeys:
+		title, hint = "Keys", "v for roll"
+	case vizRoll:
+		title, hint = "Roll", "v to close"
+	}
+	if m.vizSource != "" {
+		title += " · " + m.vizSource
+	}
+	rows := []string{titleStyle.Render(pad(title, inner-14)) + dimStyle.Render(pad(hint, 14))}
 	height := h - 2 - len(rows)
 	if height < 1 {
 		height = 1
 	}
-	if m.vizErr != nil {
+	switch {
+	case m.vizErr != nil:
 		rows = append(rows, errorStyle.Render(pad("  "+m.vizErr.Error(), inner)))
-	} else if m.viz == nil || len(m.vizLevels) == 0 {
+	case m.vizStatus != "":
+		rows = append(rows, dimStyle.Render(pad("  "+m.vizStatus, inner)))
+	case m.vizMode == vizKeys:
+		rows = append(rows, renderKeys(m.vizKeys, inner, height)...)
+	case m.vizMode == vizRoll:
+		rows = append(rows, renderRoll(m.vizKeys, m.vizRoll, inner, height)...)
+	case m.viz == nil || len(m.vizLevels) == 0:
 		rows = append(rows, dimStyle.Render(pad("  listening…", inner)))
-	} else {
+	default:
 		n := len(m.vizLevels)
 		// Each bar is one cell wide with a one-cell gap, centred in the pane.
 		used := n*2 - 1
@@ -480,4 +498,260 @@ func (m Model) renderViz(w, h int) string {
 		rows = append(rows, strings.Repeat(" ", inner))
 	}
 	return m.paneStyleFor(focusContent).Width(inner).Height(h - 2).Render(strings.Join(rows, "\n"))
+}
+
+// Keyboard layout. White keys are keyWidth columns of bright block with a
+// one-column gap between them; black keys are narrower dark blocks sitting
+// over the gaps in the upper part, as on a real keyboard. Lit keys take the
+// accent colours. The keyboard keeps a fixed height and sits centred in
+// the pane rather than stretching to fill it.
+const (
+	maxOctaves  = 7  // C1 to B7; the keyboard's three outer keys are dropped
+	keyboardTop = 12 // rows for the keys when the pane allows
+)
+
+// whiteSemitones are the semitones of the white keys in an octave; the
+// black keys sit over the gap after whites 0, 1, 3, 4 and 5.
+var whiteSemitones = [7]int{0, 2, 4, 5, 7, 9, 11}
+
+// keyCell is one drawn column of a keyboard row.
+type keyCell struct {
+	text  string
+	style *lipgloss.Style // nil for the bare background
+}
+
+// keyLayout places the keys across a pane of a given width.
+type keyLayout struct {
+	keyWidth   int // columns per white key
+	blackWidth int // columns per black key, centred on the gap
+	octaves    int
+	startOct   int // octave number of the leftmost C
+	pitch      int // columns from one white key to the next
+	total      int // columns the keyboard spans
+	lead       int // columns of margin on the left
+	inner      int
+}
+
+// layoutKeys picks the widest key size that still fits five octaves, else
+// the narrowest with whatever fits. ok is false when nothing fits.
+func layoutKeys(inner int) (l keyLayout, ok bool) {
+	for _, w := range []int{4, 3, 2, 1} {
+		l.keyWidth = w
+		l.octaves = (inner + 1) / (7 * (w + 1))
+		if l.octaves >= 5 {
+			break
+		}
+	}
+	if l.octaves > maxOctaves {
+		l.octaves = maxOctaves
+	}
+	if l.octaves < 1 {
+		return l, false
+	}
+	l.startOct = 4 - l.octaves/2 // keep middle C in the middle
+	l.pitch = l.keyWidth + 1
+	l.total = l.octaves*7*l.pitch - 1
+	l.lead = (inner - l.total) / 2
+	l.blackWidth = 3
+	if l.keyWidth < 3 {
+		l.blackWidth = 1
+	}
+	l.inner = inner
+	return l, true
+}
+
+// level of the key at semitone (0 = C) in octave oct, from an 88-entry
+// A0-first slice.
+func (l keyLayout) level(levels []float64, oct, semitone int) float64 {
+	k := 12*(oct+1) + semitone - 21 // MIDI number, then A0-based index
+	if k < 0 || k >= len(levels) {
+		return 0
+	}
+	return levels[k]
+}
+
+func keyGlyph(v float64) string {
+	if v > 0.5 {
+		return "█"
+	}
+	return "▓"
+}
+
+// paint draws one row: the white keys, then the black keys over them when
+// blacks is set. With bodies set, unlit keys show as key bodies; otherwise
+// only lit keys are drawn, which is how the roll's trail rows work. glyph
+// picks the block for a lit key's level.
+func (l keyLayout) paint(levels []float64, blacks, bodies bool, glyph func(float64) string) []keyCell {
+	cells := make([]keyCell, l.total)
+	for i := range cells {
+		cells[i] = keyCell{text: " "}
+	}
+	for o := 0; o < l.octaves; o++ {
+		for wi, semi := range whiteSemitones {
+			x := (o*7 + wi) * l.pitch
+			var cell keyCell
+			switch v := l.level(levels, l.startOct+o, semi); {
+			case v > 0:
+				cell = keyCell{text: glyph(v), style: &vizLow}
+			case bodies:
+				cell = keyCell{text: "█", style: &keyWhite}
+			default:
+				continue
+			}
+			for c := 0; c < l.keyWidth; c++ {
+				cells[x+c] = cell
+			}
+		}
+	}
+	if !blacks {
+		return cells
+	}
+	for o := 0; o < l.octaves; o++ {
+		for wi, semi := range whiteSemitones {
+			if wi == 2 || wi == 6 { // no black after E or B
+				continue
+			}
+			gap := (o*7+wi)*l.pitch + l.keyWidth // the gap column after this white
+			var cell keyCell
+			switch v := l.level(levels, l.startOct+o, semi+1); {
+			case v > 0:
+				cell = keyCell{text: glyph(v), style: &vizMid}
+			case bodies:
+				cell = keyCell{text: "█", style: &keyBlack}
+			default:
+				continue
+			}
+			for c := gap - l.blackWidth/2; c <= gap+l.blackWidth/2; c++ {
+				if c >= 0 && c < l.total {
+					cells[c] = cell
+				}
+			}
+		}
+	}
+	return cells
+}
+
+// render turns a row of cells into a padded line, styling runs of the same
+// cell together to keep the escape codes down.
+func (l keyLayout) render(cells []keyCell) string {
+	var line strings.Builder
+	line.WriteString(strings.Repeat(" ", l.lead))
+	for i := 0; i < len(cells); {
+		j := i
+		for j < len(cells) && cells[j].style == cells[i].style && cells[j].text == cells[i].text {
+			j++
+		}
+		run := strings.Repeat(cells[i].text, j-i)
+		if cells[i].style != nil {
+			run = cells[i].style.Render(run)
+		}
+		line.WriteString(run)
+		i = j
+	}
+	return pad(line.String(), l.inner)
+}
+
+// labels is the row of octave names under the keys.
+func (l keyLayout) labels() string {
+	var names strings.Builder
+	names.WriteString(strings.Repeat(" ", l.lead))
+	for o := 0; o < l.octaves; o++ {
+		names.WriteString(pad(fmt.Sprintf("C%d", l.startOct+o), 7*l.pitch))
+	}
+	return pad(dimStyle.Render(names.String()), l.inner)
+}
+
+// keyboard draws the keys themselves over keyRows rows, black keys on the
+// top three fifths.
+func (l keyLayout) keyboard(levels []float64, keyRows int) []string {
+	upper := l.render(l.paint(levels, true, true, keyGlyph))
+	lower := l.render(l.paint(levels, false, true, keyGlyph))
+	rows := make([]string, 0, keyRows)
+	for r := 0; r < keyRows; r++ {
+		if r < keyRows*3/5 {
+			rows = append(rows, upper)
+		} else {
+			rows = append(rows, lower)
+		}
+	}
+	return rows
+}
+
+// renderKeys draws levels (88 entries, A0 first) as a piano across inner
+// columns and height rows, centred vertically.
+func renderKeys(levels []float64, inner, height int) []string {
+	l, ok := layoutKeys(inner)
+	if !ok || height < 3 {
+		return []string{dimStyle.Render(pad("  pane too small for the keyboard", inner))}
+	}
+	labels := height >= 6
+	keyRows := height
+	if labels {
+		keyRows--
+	}
+	if keyRows > keyboardTop {
+		keyRows = keyboardTop
+	}
+	used := keyRows
+	if labels {
+		used++
+	}
+	rows := make([]string, 0, height)
+	for i := 0; i < (height-used)/2; i++ {
+		rows = append(rows, strings.Repeat(" ", inner))
+	}
+	rows = append(rows, l.keyboard(levels, keyRows)...)
+	if labels {
+		rows = append(rows, l.labels())
+	}
+	return rows
+}
+
+// renderRoll puts the keyboard at the bottom and fills the rows above with
+// history, newest nearest the keys, so notes leave a trail that rises and
+// fades as it ages.
+func renderRoll(levels []float64, history [][]float64, inner, height int) []string {
+	l, ok := layoutKeys(inner)
+	if !ok || height < 4 {
+		return []string{dimStyle.Render(pad("  pane too small for the roll", inner))}
+	}
+	// The keyboard takes up to a third of the pane, the trail the rest.
+	labels := height >= 8
+	keyRows := height / 3
+	if keyRows > keyboardTop {
+		keyRows = keyboardTop
+	}
+	if keyRows < 2 {
+		keyRows = 2
+	}
+	trailRows := height - keyRows
+	if labels {
+		trailRows--
+	}
+	rows := make([]string, 0, height)
+	for r := 0; r < trailRows; r++ {
+		// Row r from the top shows the entry trailRows-1-r steps back.
+		idx := len(history) - trailRows + r
+		if idx < 0 {
+			rows = append(rows, strings.Repeat(" ", inner))
+			continue
+		}
+		age := float64(trailRows-1-r) / float64(trailRows) // 0 newest, ~1 oldest
+		glyph := func(v float64) string {
+			switch {
+			case age > 0.66:
+				return "░"
+			case age > 0.33 || v <= 0.5:
+				return "▒"
+			default:
+				return "█"
+			}
+		}
+		rows = append(rows, l.render(l.paint(history[idx], true, false, glyph)))
+	}
+	rows = append(rows, l.keyboard(levels, keyRows)...)
+	if labels {
+		rows = append(rows, l.labels())
+	}
+	return rows
 }

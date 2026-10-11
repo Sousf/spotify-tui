@@ -1,6 +1,7 @@
 package viz
 
 import (
+	"fmt"
 	"math"
 	"os"
 	"testing"
@@ -80,7 +81,7 @@ func TestBarsSmoothAndDecay(t *testing.T) {
 	}
 }
 
-// TestLiveCapture starts parec against the real sound server. Gated because
+// TestLiveCapture records from the real sound server. Gated because
 // CI boxes have no PipeWire.
 func TestLiveCapture(t *testing.T) {
 	if os.Getenv("SPOTIFY_TUI_LIVE") == "" {
@@ -96,5 +97,19 @@ func TestLiveCapture(t *testing.T) {
 		t.Fatal(err)
 	}
 	levels, _ := c.Bars(16)
+	t.Logf("source %q status %q", c.Source(), c.Status())
 	t.Logf("levels after 400ms: %.2f", levels)
+	// A few frames of the keyboard, as note names, to eyeball against the
+	// music that is playing.
+	names := []string{"A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#"}
+	for frame := 0; frame < 5; frame++ {
+		var lit []string
+		for k, v := range c.Keys() {
+			if v > 0 {
+				lit = append(lit, fmt.Sprintf("%s%d:%.1f", names[k%12], (k+9)/12, v))
+			}
+		}
+		t.Logf("keys: %v", lit)
+		time.Sleep(300 * time.Millisecond)
+	}
 }

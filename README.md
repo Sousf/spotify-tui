@@ -6,6 +6,12 @@ It drives the Spotify Web API, so it does not play audio itself. Open Spotify
 on your phone, desktop, or a speaker and this controls that device. Playback
 control needs Spotify Premium; browsing works on any account.
 
+To look around before setting anything up, `spotify-tui demo` runs the
+interface on a made-up library with a built-in tune for the visualiser. It
+needs no account and makes no network requests.
+
+![Browsing a playlist, searching, and the visualiser's bars, piano keys and piano roll](demo.gif)
+
 ## Install
 
 ```
@@ -78,13 +84,41 @@ track plays through it. Playback needs Premium.
 | `+` `-` | volume |
 | `s` `r` | shuffle / repeat |
 | `d` `u` | devices / queue |
-| `v` | audio visualiser (reads the PipeWire output monitor via `parec`) |
+| `v` | visualiser of what Spotify is playing: bars, piano keys, piano roll, off |
 | `a` | add selected track to queue |
 | `f` `F` | save / unsave selected track |
 | `e` `b` | jump to the selected track's artist or album |
 | `R` | reload |
 | `?` | help |
 | `q` | quit |
+
+## Visualiser
+
+`v` shows a spectrum of the player's output; a second press switches to a
+piano keyboard lighting the notes it hears, a third adds a roll above the
+keys where each note leaves a trail that rises and fades over the last few
+seconds, and a fourth closes it. On
+PipeWire the capture records only the
+Spotify stream: it finds the playback node with `pw-dump` and reads it with
+`pw-record`, so a video in another window never shows up in the bars. It
+recognises the stream by a property containing `spotify` or `librespot`,
+which covers spotifyd, the official client and most third-party players. For
+another player, set `SPOTIFY_TUI_VIZ_SOURCE` to a comma-separated list of
+words to look for in the stream's application name, process binary or node
+name. The pane says "waiting for Spotify to play" until the stream exists.
+
+Without `pw-record` the visualiser falls back to `parec` on the default
+sink's monitor, which mixes every application.
+
+The keyboard view is a pitch tracker for the whole mix, not a transcription.
+Each key has its own filter at the note's frequency, the strongest peaks are
+kept, and the harmonics those notes would produce are discounted so a bass
+note does not light the octaves above it. Frames without clear pitches, such
+as a drum fill, light nothing. Solo instruments and sparse arrangements track
+well; in a dense mix expect the bassline and the current chord, with vocals
+flickering between neighbouring keys. Low notes below about C2 need a longer
+window than the display latency allows and may spill onto a neighbour. The
+keyboard shows as many octaves as fit the pane, centred on middle C, with wider keys on wider terminals.
 
 ## Limits of a development-mode app
 
@@ -99,6 +133,26 @@ notice here:
   "User Management" in the dashboard) can log in.
 - Creating the app needs a Premium account, and each account gets one
   development-mode app.
+
+## Theming
+
+Colours come from `~/.config/spotify-tui/theme.toml`, flat `key = "#rrggbb"`
+lines. Any key left out keeps the built-in Spotify-green default, and the
+running TUI re-reads the file within two seconds of a change, so a desktop
+theme switcher can regenerate it and recolour an open session.
+
+```
+text     = "#dfe2f0"   # primary text
+subtext  = "#aaadba"
+overlay0 = "#696c78"   # dimmed text, headers, hints
+surface0 = "#1a1c27"   # cursor row
+surface1 = "#282a36"   # unfocused borders
+surface2 = "#393b47"   # progress track
+accent   = "#1464c4"   # focused border, playing track, progress
+accent2  = "#c41c14"   # visualiser mid band
+red      = "#cc7264"   # errors, visualiser top band
+yellow   = "#d8a850"   # notices
+```
 
 ## Troubleshooting
 
@@ -124,6 +178,7 @@ cached token.
 go test ./...
 SPOTIFY_TUI_DUMP=1 go test -run TestDump -v ./internal/ui   # print a frame with fake data
 SPOTIFY_TUI_LIVE=1 go test -run 'TestLive' -v ./...         # hit the real API and sound server
+vhs demo.tape                                                # re-record demo.gif from the demo mode
 ```
 
 Releases are cut by pushing a tag. GoReleaser builds the binaries, publishes

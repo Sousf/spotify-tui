@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/zmb3/spotify/v2"
 
+	"github.com/Sousf/spotify-tui/internal/theme"
 	"github.com/Sousf/spotify-tui/internal/viz"
 )
 
@@ -51,8 +52,14 @@ type Model struct {
 	search textinput.Model
 
 	// visualiser, running only while shown
+	startViz  func() (*viz.Capture, error)
 	viz       *viz.Capture
-	showViz   bool
+	vizStatus string // from Capture.Status: why no audio is flowing
+	vizSource string // from Capture.Source: the stream being recorded
+	vizMode   vizMode
+	vizKeys   []float64   // per piano key, from Capture.Keys
+	vizRoll   [][]float64 // key snapshots for the roll, oldest first
+	vizTicks  int         // frames since the visualiser started, for the roll cadence
 	vizErr    error
 	vizLevels []float64
 	vizPeaks  []float64
@@ -60,6 +67,9 @@ type Model struct {
 	status      string
 	statusErr   bool
 	statusUntil time.Time
+
+	themeSeen    time.Time // mtime of the theme file last applied
+	themeChecked time.Time
 }
 
 // New builds the model from an authenticated HTTP client.
@@ -71,13 +81,42 @@ func New(hc *http.Client) Model {
 	ti.CharLimit = 200
 
 	m := Model{
-		client: client,
-		focus:  focusLibrary,
-		search: ti,
+		client:   client,
+		focus:    focusLibrary,
+		search:   ti,
+		startViz: viz.Start,
 	}
 	m.library = page{kind: pagePlaylists, title: "Library", items: libraryEntries(nil)}
 	m.openLibrary(m.library.items[0])
+	m.loadTheme()
 	return m
+}
+
+// WithVisualiser replaces the audio capture the visualiser starts, so the
+// demo can show it without a player or a recorder.
+func (m Model) WithVisualiser(start func() (*viz.Capture, error)) Model {
+	m.startViz = start
+	return m
+}
+
+// loadTheme applies the palette file if it changed since the last look.
+// Called on start and every couple of seconds from the tick, so switching
+// the desktop theme recolours a running session.
+func (m *Model) loadTheme() {
+	m.themeChecked = time.Now()
+	mt := theme.ModTime()
+	if mt.Equal(m.themeSeen) {
+		return
+	}
+	m.themeSeen = mt
+	pal, err := theme.Load()
+	if err != nil {
+		slog.Warn("theme", "err", err)
+		m.setStatus("theme.toml: "+err.Error(), true)
+	} else if !mt.IsZero() {
+		slog.Info("theme applied", "accent", pal.Accent)
+	}
+	applyPalette(pal)
 }
 
 func libraryEntries(playlists []item) []item {
@@ -100,8 +139,10 @@ func (m Model) Init() tea.Cmd {
 		tick(),
 		poll(pollEvery),
 	}
-	if top := m.top(); top != nil {
-		cmds = append(cmds, m.initialLoad(top))
+	// New opened the first page, which marked it loading, but a constructor
+	// has nowhere to return the fetch; issue it here.
+	if top := m.top(); top != nil && top.load != nil && len(top.items) == 0 {
+		cmds = append(cmds, top.load(0))
 	}
 	return tea.Batch(cmds...)
 }
@@ -340,6 +381,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case tickMsg:
+		if time.Since(m.themeChecked) >= 2*time.Second {
+			m.loadTheme()
+		}
 		if m.state != nil && m.state.Playing && m.state.Item != nil {
 			m.progress = time.Duration(m.state.Progress)*time.Millisecond + time.Since(m.stateAt)
 			if max := m.state.Item.TimeDuration(); m.progress > max {
@@ -355,7 +399,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, fetchPlayerState(m.client)
 
 	case vizTickMsg:
-		if !m.showViz || m.viz == nil {
+		if m.vizMode == vizOff || m.viz == nil {
 			return m, nil
 		}
 		if err := m.viz.Err(); err != nil {
@@ -363,7 +407,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viz = nil
 			return m, nil
 		}
-		m.vizLevels, m.vizPeaks = m.viz.Bars(m.vizBarCount())
+		m.vizStatus, m.vizSource = m.viz.Status(), m.viz.Source()
+		m.vizTicks++
+		switch m.vizMode {
+		case vizBars:
+			m.vizLevels, m.vizPeaks = m.viz.Bars(m.vizBarCount())
+		case vizKeys:
+			m.vizKeys = m.viz.Keys()
+		case vizRoll:
+			m.vizKeys = m.viz.Keys()
+			if m.vizTicks%rollEvery == 0 {
+				m.vizRoll = append(m.vizRoll, m.vizKeys)
+				if len(m.vizRoll) > rollHistory {
+					m.vizRoll = m.vizRoll[len(m.vizRoll)-rollHistory:]
+				}
+			}
+		}
 		return m, vizTick()
 
 	case playerStateMsg:
@@ -478,6 +537,21 @@ type refreshMsg struct{}
 
 type vizTickMsg struct{}
 
+// vizMode is what the content pane shows while the visualiser is up.
+type vizMode int
+
+const (
+	vizOff  vizMode = iota
+	vizBars         // spectrum bars
+	vizKeys         // piano keyboard
+	vizRoll         // keyboard with a rising trail of what was played
+)
+
+const (
+	rollEvery   = 3   // frames per roll row, ~100 ms at 30 fps
+	rollHistory = 300 // rows kept, ~30 s; the pane shows what fits
+)
+
 func vizTick() tea.Cmd {
 	return tea.Tick(vizFrame, func(time.Time) tea.Msg { return vizTickMsg{} })
 }
@@ -492,18 +566,30 @@ func (m Model) vizBarCount() int {
 	return n
 }
 
-func (m *Model) toggleViz() tea.Cmd {
-	if m.showViz {
-		m.showViz = false
+// cycleViz steps v through bars, keys, roll and off. The capture runs for
+// every view and stops only when the visualiser closes.
+func (m *Model) cycleViz() tea.Cmd {
+	switch m.vizMode {
+	case vizBars:
+		m.vizMode = vizKeys
+		return nil
+	case vizKeys:
+		m.vizMode = vizRoll
+		m.vizRoll = nil
+		return nil
+	case vizRoll:
+		m.vizMode = vizOff
 		m.viz.Stop()
 		m.viz = nil
 		slog.Info("visualiser stopped")
 		return nil
 	}
-	m.showViz = true
+	m.vizMode = vizBars
 	m.showHelp = false
 	m.vizErr = nil
-	c, err := viz.Start()
+	m.vizStatus, m.vizSource = "", ""
+	m.vizKeys, m.vizRoll, m.vizTicks = nil, nil, 0
+	c, err := m.startViz()
 	if err != nil {
 		slog.Warn("visualiser start failed", "err", err)
 		m.vizErr = err
@@ -552,7 +638,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.showHelp = true
 		return m, nil
 	case "v":
-		return m, m.toggleViz()
+		return m, m.cycleViz()
 	case "/":
 		return m, m.startSearch()
 	case " ":
