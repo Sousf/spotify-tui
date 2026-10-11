@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/mattn/go-runewidth"
 	"github.com/muesli/termenv"
 	"github.com/zmb3/spotify/v2"
 
@@ -257,6 +258,25 @@ func TestStyledRowsKeepContent(t *testing.T) {
 	for _, label := range []string{"1 Tracks", "2 Artists", "3 Albums", "4 Playlists"} {
 		if !strings.Contains(out, label) {
 			t.Errorf("search tab %q missing from frame", label)
+		}
+	}
+}
+
+// TestPadEmojiWidth checks that emoji glued with joiners and selectors come
+// out as wide counted per code point, the way xterm, VTE and tmux draw them,
+// as they are counted per grapheme. When the two disagreed, rows wrapped and
+// left doubled lines on screen.
+func TestPadEmojiWidth(t *testing.T) {
+	for _, s := range []string{"❤️‍🔥 mix", "❤️ songs", "👍🏽 ok", "🔥🌻 summer", "⏳ later", "Road trip 日本語"} {
+		for _, w := range []int{4, 9, 20} {
+			out := pad(s, w)
+			perRune := 0
+			for _, r := range out {
+				perRune += runewidth.RuneWidth(r)
+			}
+			if got := ansi.StringWidth(out); got != w || perRune != w {
+				t.Errorf("pad(%q, %d) = %q: %d cells by grapheme, %d by code point", s, w, out, got, perRune)
+			}
 		}
 	}
 }

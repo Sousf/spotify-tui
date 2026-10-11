@@ -229,13 +229,33 @@ func pad(s string, w int) string {
 	if w <= 0 {
 		return ""
 	}
-	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.Map(plainRune, strings.ReplaceAll(s, "\n", " "))
 	sw := ansi.StringWidth(s)
 	if sw > w {
+		tail := "…"
 		if w <= 1 {
-			return ansi.Truncate(s, w, "")
+			tail = ""
 		}
-		return ansi.Truncate(s, w, "…")
+		// A wide character that would straddle the edge is dropped whole,
+		// which can leave the result a cell short.
+		s = ansi.Truncate(s, w, tail)
+		sw = ansi.StringWidth(s)
 	}
 	return s + strings.Repeat(" ", w-sw)
+}
+
+// plainRune drops the code points that glue emoji into one wider glyph:
+// variation selectors, zero-width joiners and skin tone modifiers. Terminals
+// disagree on how wide the glued forms are (❤️ is two cells in kitty and one
+// in xterm, VTE and tmux), and a row that comes out wider than the cells
+// measured for it wraps and leaves stale lines on screen. Without the glue,
+// each emoji is a single code point every terminal measures the same.
+func plainRune(r rune) rune {
+	switch {
+	case r == 0xFE0E, r == 0xFE0F, r == 0x200D:
+		return -1
+	case r >= 0x1F3FB && r <= 0x1F3FF:
+		return -1
+	}
+	return r
 }
