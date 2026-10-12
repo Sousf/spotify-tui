@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.2 (2026-10-12)
+
+- Bump github.com/charmbracelet/x/ansi from 0.11.6 to 0.11.9 (#8)
+- Remove dead user fetch and trim per-frame overhead in UI and viz (#7)
+
 ## v0.1.1 (2026-10-11)
 
 - Release through Homebrew (#5)
