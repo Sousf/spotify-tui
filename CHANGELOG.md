@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.3 (2026-10-18)
+
+- Pin CI actions, limit token, add govulncheck (#10)
+
 ## v0.1.2 (2026-10-12)
 
 - Bump github.com/charmbracelet/x/ansi from 0.11.6 to 0.11.9 (#8)
