@@ -2,6 +2,8 @@ module github.com/Sousf/spotify-tui
 
 go 1.27.1
 
+toolchain go1.27.3
+
 require (
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10

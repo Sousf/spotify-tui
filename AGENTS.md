@@ -40,3 +40,4 @@ by default and need a logged-in account or a human; do not enable them in CI.
 Facts recorded by MARSHAL from its own runs, reviewed in the pull requests that added them.
 
 - `staticcheck@latest` cannot analyse this module: under the Go 1.27 toolchain that `go.mod` requires, it fails with "export data version 5 is greater than maximum supported version 4". `go run golang.org/x/tools/cmd/deadcode@latest -test ./...` does work.
+- `ci.yml` installs Go with `go-version: stable`, while `release.yml` uses `go-version-file: go.mod`. Standard-library vulnerability fixes therefore reach tagged release builds only through the `toolchain` line in `go.mod`.
