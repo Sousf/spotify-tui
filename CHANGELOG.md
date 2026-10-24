@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.4 (2026-10-24)
+
+- Require Go 1.27.3 toolchain to fix GO-2026-6809 (#13)
+
 ## v0.1.3 (2026-10-18)
 
 - Pin CI actions, limit token, add govulncheck (#10)
